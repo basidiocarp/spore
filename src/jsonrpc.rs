@@ -45,6 +45,11 @@ pub struct RpcError {
 }
 
 /// Encode a JSON-RPC request with Content-Length header (MCP/LSP framing).
+///
+/// # Panics
+///
+/// Panics if the request cannot be serialized to JSON (should never happen
+/// with valid `Request` structs).
 #[must_use]
 pub fn encode(request: &Request) -> String {
     let json = serde_json::to_string(request).expect("Request serialization cannot fail");
@@ -53,6 +58,10 @@ pub fn encode(request: &Request) -> String {
 
 /// Decode a JSON-RPC response from a Content-Length framed message.
 /// Handles both `\r\n\r\n` (standard) and `\n\n` (common in practice) separators.
+///
+/// # Errors
+///
+/// Returns an error if the body cannot be parsed as a JSON-RPC response.
 pub fn decode(input: &str) -> Result<Response> {
     let body = if let Some(idx) = input.find("\r\n\r\n") {
         &input[idx + 4..]

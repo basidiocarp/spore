@@ -6,7 +6,7 @@
 use crate::discovery::discover;
 use crate::jsonrpc;
 use crate::types::Tool;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
@@ -23,6 +23,10 @@ pub struct McpClient {
 
 impl McpClient {
     /// Spawn a new MCP client for the given tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tool binary is not found in PATH or cannot be spawned.
     pub fn spawn(tool: Tool, args: &[&str]) -> Result<Self> {
         let mut client = Self {
             tool,
@@ -35,12 +39,22 @@ impl McpClient {
     }
 
     /// Set the timeout for tool calls.
+    #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
     /// Call an MCP tool and return the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the subprocess is not running, the request fails to send,
+    /// the response is malformed, or the server returns a JSON-RPC error.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "ergonomic API: callers pass json!({...}) directly"
+    )]
     pub fn call_tool(&mut self, name: &str, arguments: Value) -> Result<Value> {
         self.ensure_alive()?;
 
@@ -115,8 +129,8 @@ impl McpClient {
             let _ = child.kill();
         }
 
-        let info = discover(self.tool)
-            .with_context(|| format!("{} not found in PATH", self.tool))?;
+        let info =
+            discover(self.tool).with_context(|| format!("{} not found in PATH", self.tool))?;
 
         let child = Command::new(&info.binary_path)
             .args(&self.args)
