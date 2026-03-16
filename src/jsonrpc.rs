@@ -52,9 +52,12 @@ pub fn encode(request: &Request) -> String {
 }
 
 /// Decode a JSON-RPC response from a Content-Length framed message.
+/// Handles both `\r\n\r\n` (standard) and `\n\n` (common in practice) separators.
 pub fn decode(input: &str) -> Result<Response> {
     let body = if let Some(idx) = input.find("\r\n\r\n") {
         &input[idx + 4..]
+    } else if let Some(idx) = input.find("\n\n") {
+        &input[idx + 2..]
     } else {
         input
     };
