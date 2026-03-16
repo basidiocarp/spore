@@ -103,4 +103,32 @@ mod tests {
         let resp = decode(raw).unwrap();
         assert_eq!(resp.id, 1);
     }
+
+    #[test]
+    fn test_decode_error_response() {
+        let raw =
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let resp = decode(raw).unwrap();
+        assert!(resp.error.is_some());
+        let error = resp.error.unwrap();
+        assert_eq!(error.code, -32601);
+        assert_eq!(error.message, "Method not found");
+        assert!(resp.result.is_none());
+    }
+
+    #[test]
+    fn test_decode_error_response_with_data() {
+        let raw = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"Invalid Request","data":"extra info"}}"#;
+        let resp = decode(raw).unwrap();
+        let error = resp.error.unwrap();
+        assert_eq!(error.code, -32600);
+        assert!(error.data.is_some());
+    }
+
+    #[test]
+    fn test_decode_crlf_separator() {
+        let raw = "Content-Length: 37\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}";
+        let resp = decode(raw).unwrap();
+        assert_eq!(resp.id, 1);
+    }
 }

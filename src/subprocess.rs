@@ -152,3 +152,122 @@ impl Drop for McpClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build an `McpClient` without spawning a real ecosystem tool.
+    /// Uses `child: None` so no subprocess is involved.
+    fn stub_client() -> McpClient {
+        McpClient {
+            tool: Tool::Hyphae,
+            args: vec!["serve".to_string()],
+            child: None,
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    /// Helper: build an `McpClient` backed by a Python mock MCP server.
+    ///
+    /// The mock reads one request from stdin, then writes a canned JSON-RPC
+    /// response, and blocks until killed.
+    fn mock_server_client() -> McpClient {
+        let script = r#"
+import sys
+# Read until we see closing brace (end of JSON body)
+while True:
+    ch = sys.stdin.read(1)
+    if not ch or ch == '}':
+        break
+# Write response
+resp = '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}'
+sys.stdout.write(f'Content-Length: {len(resp)}\r\n\r\n{resp}')
+sys.stdout.flush()
+# Block until killed
+sys.stdin.read()
+"#;
+        let child = Command::new("python3")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn mock MCP server (python3 required)");
+
+        McpClient {
+            tool: Tool::Hyphae,
+            args: vec![],
+            child: Some(child),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    #[test]
+    fn test_is_alive_without_child() {
+        let mut client = stub_client();
+        assert!(!client.is_alive());
+    }
+
+    #[test]
+    fn test_drop_does_not_panic_with_none_child() {
+        let client = stub_client();
+        drop(client);
+    }
+
+    #[test]
+    fn test_drop_does_not_panic_with_live_child() {
+        let client = mock_server_client();
+        drop(client); // Should kill child cleanly
+    }
+
+    #[test]
+    fn test_is_alive_with_running_child() {
+        let mut client = mock_server_client();
+        assert!(client.is_alive());
+    }
+
+    #[test]
+    fn test_with_timeout_returns_self() {
+        let client = stub_client();
+        let updated = client.with_timeout(Duration::from_secs(30));
+        assert_eq!(updated.timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_call_tool_on_mock_server() {
+        let mut client = mock_server_client();
+        let result = client.call_tool("test_tool", serde_json::json!({"key": "value"}));
+        assert!(result.is_ok(), "call_tool failed: {result:?}");
+
+        let value = result.unwrap();
+        // Mock server returns {"content":[{"type":"text","text":"ok"}]}
+        let content = value.get("content").expect("missing content field");
+        let first = content.as_array().expect("content not array").first().unwrap();
+        assert_eq!(first.get("text").and_then(|v| v.as_str()), Some("ok"));
+    }
+
+    #[test]
+    fn test_ensure_alive_replaces_exited_child() {
+        // Spawn a child that exits immediately
+        let child = Command::new("true")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn 'true'");
+
+        let mut client = McpClient {
+            tool: Tool::Hyphae,
+            args: vec![],
+            child: Some(child),
+            timeout: Duration::from_secs(1),
+        };
+
+        // Give the child time to exit
+        std::thread::sleep(Duration::from_millis(50));
+
+        // is_alive should return false after the child exits
+        assert!(!client.is_alive());
+    }
+}
