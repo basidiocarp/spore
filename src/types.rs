@@ -63,9 +63,10 @@ impl ProjectContext {
     pub fn detect(path: &Path) -> Self {
         let root = find_git_root(path).unwrap_or_else(|| path.to_path_buf());
 
-        let name = root
-            .file_name()
-            .map_or_else(|| "unknown".to_owned(), |n| n.to_string_lossy().into_owned());
+        let name = root.file_name().map_or_else(
+            || "unknown".to_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
 
         let detected_languages = detect_languages(&root);
 
@@ -124,7 +125,9 @@ fn detect_languages(root: &Path) -> Vec<String> {
 
         // Level 0: check files at the root
         if path.is_file()
-            && let Some(lang) = path.extension().and_then(|e| ext_to_language(&e.to_string_lossy()))
+            && let Some(lang) = path
+                .extension()
+                .and_then(|e| ext_to_language(&e.to_string_lossy()))
         {
             *counts.entry(lang).or_default() += 1;
         }
@@ -137,8 +140,9 @@ fn detect_languages(root: &Path) -> Vec<String> {
                 };
                 let child_path = child.path();
                 if child_path.is_file()
-                    && let Some(lang) =
-                        child_path.extension().and_then(|e| ext_to_language(&e.to_string_lossy()))
+                    && let Some(lang) = child_path
+                        .extension()
+                        .and_then(|e| ext_to_language(&e.to_string_lossy()))
                 {
                     *counts.entry(lang).or_default() += 1;
                 }
@@ -149,7 +153,11 @@ fn detect_languages(root: &Path) -> Vec<String> {
     let mut ranked: Vec<(&str, usize)> = counts.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1));
 
-    ranked.into_iter().take(3).map(|(lang, _)| lang.to_owned()).collect()
+    ranked
+        .into_iter()
+        .take(3)
+        .map(|(lang, _)| lang.to_owned())
+        .collect()
 }
 
 /// Detect project context from a given path.

@@ -243,7 +243,11 @@ sys.stdin.read()
         let value = result.unwrap();
         // Mock server returns {"content":[{"type":"text","text":"ok"}]}
         let content = value.get("content").expect("missing content field");
-        let first = content.as_array().expect("content not array").first().unwrap();
+        let first = content
+            .as_array()
+            .expect("content not array")
+            .first()
+            .unwrap();
         assert_eq!(first.get("text").and_then(|v| v.as_str()), Some("ok"));
     }
 
