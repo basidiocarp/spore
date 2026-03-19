@@ -2,6 +2,10 @@
 //!
 //! Spawns a tool as a subprocess, sends JSON-RPC requests over stdin,
 //! and reads responses from stdout.
+//!
+//! Supports two framing modes:
+//! - `LineDelimited` (default): newline-delimited JSON, used by Hyphae and Rhizome
+//! - `ContentLength`: LSP-style headers + body, used by LSP servers
 
 use crate::discovery::discover;
 use crate::jsonrpc;
@@ -14,15 +18,36 @@ use std::time::Duration;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum Framing {
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// `LineDelimited`
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// Newline-delimited JSON. Each message is a complete JSON object on a
+    /// single line, terminated by \n. Default for ecosystem MCP servers.
+    #[default]
+    LineDelimited,
+
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// `ContentLength`
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// LSP-style Content-Length headers followed by a blank line, then the body.
+    /// Used by LSP servers.
+    ContentLength,
+}
+
 pub struct McpClient {
     tool: Tool,
     args: Vec<String>,
     child: Option<Child>,
     timeout: Duration,
+    framing: Framing,
 }
 
 impl McpClient {
     /// Spawn a new MCP client for the given tool.
+    ///
+    /// Defaults to `Framing::LineDelimited` for compatibility with Hyphae and Rhizome.
     ///
     /// # Errors
     ///
@@ -33,6 +58,7 @@ impl McpClient {
             args: args.iter().map(|&s| s.to_string()).collect(),
             child: None,
             timeout: DEFAULT_TIMEOUT,
+            framing: Framing::default(),
         };
         client.ensure_alive()?;
         Ok(client)
@@ -42,6 +68,15 @@ impl McpClient {
     #[must_use]
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Set the framing mode for this client.
+    ///
+    /// Default is `Framing::LineDelimited` for compatibility with ecosystem MCP servers.
+    #[must_use]
+    pub fn with_framing(mut self, framing: Framing) -> Self {
+        self.framing = framing;
         self
     }
 
@@ -67,48 +102,63 @@ impl McpClient {
         );
 
         let encoded = jsonrpc::encode(&request);
-        let child = self.child.as_mut().context("No child process")?;
+        let _child = self.child.as_mut().context("No child process")?;
 
-        // Write request
-        let stdin = child.stdin.as_mut().context("No stdin")?;
-        stdin.write_all(encoded.as_bytes())?;
-        stdin.flush()?;
+        // ─────────────────────────────────────────────────────────────────────
+        // Write Request
+        // ─────────────────────────────────────────────────────────────────────
+        self.send_request(&encoded)?;
 
-        // Read response (simplified: read until we get a complete JSON object)
-        let stdout = child.stdout.as_mut().context("No stdout")?;
-        let mut reader = BufReader::new(stdout);
-        let mut content_length = 0;
-
-        // Read headers
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line)?;
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                break;
-            }
-            if let Some(len) = trimmed.strip_prefix("Content-Length: ") {
-                content_length = len.parse().context("Invalid Content-Length")?;
-            }
-        }
-
-        if content_length == 0 {
-            bail!("No Content-Length in response");
-        }
-
-        // Read body
-        let mut body = vec![0u8; content_length];
-        std::io::Read::read_exact(&mut reader, &mut body)?;
-        let body_str = String::from_utf8(body)?;
-
-        let response: jsonrpc::Response =
-            serde_json::from_str(&body_str).context("Failed to parse response")?;
+        // ─────────────────────────────────────────────────────────────────────
+        // Read Response
+        // ─────────────────────────────────────────────────────────────────────
+        let response = self.recv_response()?;
 
         if let Some(error) = response.error {
             bail!("RPC error {}: {}", error.code, error.message);
         }
 
         response.result.context("Empty result in response")
+    }
+
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// Send Request
+    /// ─────────────────────────────────────────────────────────────────────────
+    fn send_request(&mut self, encoded: &str) -> Result<()> {
+        let child = self.child.as_mut().context("No child process")?;
+        let stdin = child.stdin.as_mut().context("No stdin")?;
+
+        match self.framing {
+            Framing::LineDelimited => {
+                // Write JSON object + newline
+                stdin.write_all(encoded.as_bytes())?;
+                stdin.write_all(b"\n")?;
+            }
+            Framing::ContentLength => {
+                // Write as LSP-style: Content-Length header + blank line + body
+                let header = format!("Content-Length: {}\r\n\r\n", encoded.len());
+                stdin.write_all(header.as_bytes())?;
+                stdin.write_all(encoded.as_bytes())?;
+            }
+        }
+
+        stdin.flush()?;
+        Ok(())
+    }
+
+    /// ─────────────────────────────────────────────────────────────────────────
+    /// Recv Response
+    /// ─────────────────────────────────────────────────────────────────────────
+    fn recv_response(&mut self) -> Result<jsonrpc::Response> {
+        let framing = self.framing;
+        let child = self.child.as_mut().context("No child process")?;
+        let stdout = child.stdout.as_mut().context("No stdout")?;
+        let mut reader = BufReader::new(stdout);
+
+        match framing {
+            Framing::LineDelimited => read_line_delimited(&mut reader),
+            Framing::ContentLength => read_content_length(&mut reader),
+        }
     }
 
     /// Check if the subprocess is still running.
@@ -153,6 +203,57 @@ impl Drop for McpClient {
     }
 }
 
+/// ─────────────────────────────────────────────────────────────────────────
+/// Read Line Delimited
+/// ─────────────────────────────────────────────────────────────────────────
+/// Read a single line and parse it as JSON.
+fn read_line_delimited(
+    reader: &mut BufReader<&mut std::process::ChildStdout>,
+) -> Result<jsonrpc::Response> {
+    let mut line = String::new();
+    let n = reader.read_line(&mut line)?;
+
+    if n == 0 {
+        bail!("EOF while reading response");
+    }
+
+    serde_json::from_str(line.trim()).context("Failed to parse line-delimited response")
+}
+
+/// ─────────────────────────────────────────────────────────────────────────
+/// Read Content Length
+/// ─────────────────────────────────────────────────────────────────────────
+/// Read Content-Length headers, skip blank line, then read body.
+fn read_content_length(
+    reader: &mut BufReader<&mut std::process::ChildStdout>,
+) -> Result<jsonrpc::Response> {
+    let mut content_length = 0;
+
+    // Read headers
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line)?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(len) = trimmed.strip_prefix("Content-Length: ") {
+            content_length = len.parse().context("Invalid Content-Length")?;
+        }
+    }
+
+    if content_length == 0 {
+        bail!("No Content-Length in response");
+    }
+
+    // Read body
+    let mut body = vec![0u8; content_length];
+    std::io::Read::read_exact(reader, &mut body)?;
+    let body_str = String::from_utf8(body)?;
+
+    serde_json::from_str(&body_str).context("Failed to parse response body")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,14 +266,50 @@ mod tests {
             args: vec!["serve".to_string()],
             child: None,
             timeout: Duration::from_secs(5),
+            framing: Framing::LineDelimited,
         }
     }
 
-    /// Helper: build an `McpClient` backed by a Python mock MCP server.
+    /// Helper: build an `McpClient` backed by a Python mock MCP server using
+    /// line-delimited JSON (newline-separated messages).
     ///
-    /// The mock reads one request from stdin, then writes a canned JSON-RPC
-    /// response, and blocks until killed.
-    fn mock_server_client() -> McpClient {
+    /// The mock reads until it sees a newline, then writes a canned JSON-RPC
+    /// response as a line, and blocks until killed.
+    fn mock_server_line_delimited() -> McpClient {
+        let script = r#"
+import sys
+# Read until we see newline (end of line-delimited JSON)
+line = sys.stdin.readline()
+# Write response as newline-delimited JSON
+resp = '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}'
+sys.stdout.write(resp + '\n')
+sys.stdout.flush()
+# Block until killed
+sys.stdin.read()
+"#;
+        let child = Command::new("python3")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn mock MCP server (python3 required)");
+
+        McpClient {
+            tool: Tool::Hyphae,
+            args: vec![],
+            child: Some(child),
+            timeout: Duration::from_secs(5),
+            framing: Framing::LineDelimited,
+        }
+    }
+
+    /// Helper: build an `McpClient` backed by a Python mock MCP server using
+    /// Content-Length framing (LSP-style headers + body).
+    ///
+    /// The mock reads until it sees a closing brace (end of JSON body),
+    /// then writes a canned JSON-RPC response with Content-Length headers.
+    fn mock_server_content_length() -> McpClient {
         let script = r#"
 import sys
 # Read until we see closing brace (end of JSON body)
@@ -180,7 +317,7 @@ while True:
     ch = sys.stdin.read(1)
     if not ch or ch == '}':
         break
-# Write response
+# Write response with Content-Length headers
 resp = '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}'
 sys.stdout.write(f'Content-Length: {len(resp)}\r\n\r\n{resp}')
 sys.stdout.flush()
@@ -200,6 +337,7 @@ sys.stdin.read()
             args: vec![],
             child: Some(child),
             timeout: Duration::from_secs(5),
+            framing: Framing::ContentLength,
         }
     }
 
@@ -216,14 +354,26 @@ sys.stdin.read()
     }
 
     #[test]
-    fn test_drop_does_not_panic_with_live_child() {
-        let client = mock_server_client();
+    fn test_drop_does_not_panic_with_live_child_line_delimited() {
+        let client = mock_server_line_delimited();
         drop(client); // Should kill child cleanly
     }
 
     #[test]
-    fn test_is_alive_with_running_child() {
-        let mut client = mock_server_client();
+    fn test_drop_does_not_panic_with_live_child_content_length() {
+        let client = mock_server_content_length();
+        drop(client); // Should kill child cleanly
+    }
+
+    #[test]
+    fn test_is_alive_with_running_child_line_delimited() {
+        let mut client = mock_server_line_delimited();
+        assert!(client.is_alive());
+    }
+
+    #[test]
+    fn test_is_alive_with_running_child_content_length() {
+        let mut client = mock_server_content_length();
         assert!(client.is_alive());
     }
 
@@ -235,8 +385,32 @@ sys.stdin.read()
     }
 
     #[test]
-    fn test_call_tool_on_mock_server() {
-        let mut client = mock_server_client();
+    fn test_with_framing_returns_self() {
+        let client = stub_client();
+        let updated = client.with_framing(Framing::ContentLength);
+        assert!(matches!(updated.framing, Framing::ContentLength));
+    }
+
+    #[test]
+    fn test_call_tool_on_mock_server_line_delimited() {
+        let mut client = mock_server_line_delimited();
+        let result = client.call_tool("test_tool", serde_json::json!({"key": "value"}));
+        assert!(result.is_ok(), "call_tool failed: {result:?}");
+
+        let value = result.unwrap();
+        // Mock server returns {"content":[{"type":"text","text":"ok"}]}
+        let content = value.get("content").expect("missing content field");
+        let first = content
+            .as_array()
+            .expect("content not array")
+            .first()
+            .unwrap();
+        assert_eq!(first.get("text").and_then(|v| v.as_str()), Some("ok"));
+    }
+
+    #[test]
+    fn test_call_tool_on_mock_server_content_length() {
+        let mut client = mock_server_content_length();
         let result = client.call_tool("test_tool", serde_json::json!({"key": "value"}));
         assert!(result.is_ok(), "call_tool failed: {result:?}");
 
@@ -266,6 +440,7 @@ sys.stdin.read()
             args: vec![],
             child: Some(child),
             timeout: Duration::from_secs(1),
+            framing: Framing::LineDelimited,
         };
 
         // Give the child time to exit
