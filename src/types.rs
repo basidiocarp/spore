@@ -9,6 +9,9 @@ pub enum Tool {
     Mycelium,
     Hyphae,
     Rhizome,
+    /// Cap is a web dashboard (Node.js, not Rust). Discovered via `cap` binary but
+    /// may not be in PATH if run via `npm run dev:all` from a cloned repo.
+    Cap,
 }
 
 impl Tool {
@@ -18,12 +21,21 @@ impl Tool {
             Self::Mycelium => "mycelium",
             Self::Hyphae => "hyphae",
             Self::Rhizome => "rhizome",
+            Self::Cap => "cap",
         }
     }
 
     #[must_use]
     pub fn all() -> &'static [Tool] {
-        &[Self::Mycelium, Self::Hyphae, Self::Rhizome]
+        &[Self::Mycelium, Self::Hyphae, Self::Rhizome, Self::Cap]
+    }
+
+    /// Minimum compatible spore version for this tool.
+    #[must_use]
+    pub fn min_spore_version(self) -> &'static str {
+        match self {
+            Self::Mycelium | Self::Hyphae | Self::Rhizome | Self::Cap => "0.1.0",
+        }
     }
 }
 
