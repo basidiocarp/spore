@@ -1,6 +1,11 @@
+pub mod config;
 pub mod discovery;
 pub mod jsonrpc;
+pub mod logging;
+pub mod paths;
+pub mod self_update;
 pub mod subprocess;
+pub mod tokens;
 pub mod types;
 
 pub use discovery::{discover, discover_all};

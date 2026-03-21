@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -149,29 +149,45 @@ impl McpClient {
     /// ─────────────────────────────────────────────────────────────────────────
     /// Recv Response
     /// ─────────────────────────────────────────────────────────────────────────
-    /// Reads response from subprocess stdout with timeout enforcement.
-    /// Note: Due to Rust's ownership system, we enforce a deadline check after
-    /// reading completes rather than truly non-blocking I/O. The subprocess
-    /// connection will be terminated if it misses the deadline.
+    /// Reads response from subprocess stdout with proper timeout enforcement.
+    /// Uses a separate thread for the blocking read, allowing the main thread
+    /// to enforce the timeout. If the timeout expires, the child process is
+    /// killed and an error is returned.
     fn recv_response(&mut self) -> Result<jsonrpc::Response> {
-        let deadline = Instant::now() + self.timeout;
         let framing = self.framing;
+        let timeout = self.timeout;
 
         let child = self.child.as_mut().context("No child process")?;
-        let stdout = child.stdout.as_mut().context("No stdout")?;
-        let mut reader = BufReader::new(stdout);
+        let stdout = child.stdout.take().context("No stdout")?;
 
-        let response = match framing {
-            Framing::LineDelimited => read_line_delimited(&mut reader),
-            Framing::ContentLength => read_content_length(&mut reader),
-        };
+        let (tx, rx) = std::sync::mpsc::channel();
 
-        // Check if we exceeded the timeout while reading
-        if Instant::now() > deadline {
-            bail!("Response timeout after {:?}", self.timeout);
+        // Spawn a thread to perform the blocking read
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let result = match framing {
+                Framing::LineDelimited => read_line_delimited(&mut reader),
+                Framing::ContentLength => read_content_length(&mut reader),
+            };
+            // Extract stdout and send both back through channel
+            let stdout_back = reader.into_inner();
+            let _ = tx.send((result, stdout_back));
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok((result, stdout_back)) => {
+                // Put stdout back so child can be reused
+                self.child.as_mut().unwrap().stdout = Some(stdout_back);
+                result
+            }
+            Err(_) => {
+                // Timeout expired - kill the child process
+                if let Some(mut child) = self.child.take() {
+                    let _ = child.kill();
+                }
+                bail!("Response timeout after {timeout:?}");
+            }
         }
-
-        response
     }
 
     /// Check if the subprocess is still running.
@@ -221,7 +237,7 @@ impl Drop for McpClient {
 /// ─────────────────────────────────────────────────────────────────────────
 /// Read a single line and parse it as JSON.
 fn read_line_delimited(
-    reader: &mut BufReader<&mut std::process::ChildStdout>,
+    reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
     let mut line = String::new();
     let n = reader.read_line(&mut line)?;
@@ -238,7 +254,7 @@ fn read_line_delimited(
 /// ─────────────────────────────────────────────────────────────────────────
 /// Read Content-Length headers, skip blank line, then read body.
 fn read_content_length(
-    reader: &mut BufReader<&mut std::process::ChildStdout>,
+    reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
     let mut content_length = 0;
 
@@ -461,5 +477,106 @@ sys.stdin.read()
 
         // is_alive should return false after the child exits
         assert!(!client.is_alive());
+    }
+
+    #[test]
+    fn test_timeout_kills_hung_subprocess_line_delimited() {
+        // Create a mock server that never responds (blocks forever)
+        let script = r#"
+import sys
+# Read request
+line = sys.stdin.readline()
+# Don't write response - just block forever
+sys.stdin.read()
+"#;
+        let child = Command::new("python3")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn mock server");
+
+        let mut client = McpClient {
+            tool: Tool::Hyphae,
+            args: vec![],
+            child: Some(child),
+            timeout: Duration::from_millis(200), // Short timeout
+            framing: Framing::LineDelimited,
+        };
+
+        // Send a request that will never get a response
+        let request = jsonrpc::Request::new(
+            "tools/call",
+            serde_json::json!({
+                "name": "test_tool",
+                "arguments": {},
+            }),
+        );
+        let encoded = jsonrpc::encode(&request);
+        client.send_request(&encoded).expect("send_request failed");
+
+        // recv_response should timeout and kill the child
+        let result = client.recv_response();
+        assert!(result.is_err(), "Expected timeout error");
+        assert!(
+            result.unwrap_err().to_string().contains("timeout"),
+            "Expected timeout message"
+        );
+
+        // Child should be dead after timeout
+        assert!(!client.is_alive(), "Child should be killed after timeout");
+    }
+
+    #[test]
+    fn test_timeout_kills_hung_subprocess_content_length() {
+        // Create a mock server that never responds (blocks forever)
+        let script = r#"
+import sys
+# Read request character by character until closing brace
+while True:
+    ch = sys.stdin.read(1)
+    if not ch or ch == '}':
+        break
+# Don't write response - just block forever
+sys.stdin.read()
+"#;
+        let child = Command::new("python3")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("failed to spawn mock server");
+
+        let mut client = McpClient {
+            tool: Tool::Hyphae,
+            args: vec![],
+            child: Some(child),
+            timeout: Duration::from_millis(200), // Short timeout
+            framing: Framing::ContentLength,
+        };
+
+        // Send a request that will never get a response
+        let request = jsonrpc::Request::new(
+            "tools/call",
+            serde_json::json!({
+                "name": "test_tool",
+                "arguments": {},
+            }),
+        );
+        let encoded = jsonrpc::encode(&request);
+        client.send_request(&encoded).expect("send_request failed");
+
+        // recv_response should timeout and kill the child
+        let result = client.recv_response();
+        assert!(result.is_err(), "Expected timeout error");
+        assert!(
+            result.unwrap_err().to_string().contains("timeout"),
+            "Expected timeout message"
+        );
+
+        // Child should be dead after timeout
+        assert!(!client.is_alive(), "Child should be killed after timeout");
     }
 }

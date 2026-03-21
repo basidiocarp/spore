@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.0] - 2026-03-21
+
+### Added
+
+- **`paths` module**: Platform-aware config, data, and database path resolution. `config_dir()`, `config_path()`, `data_dir()`, `db_path()`, `find_project_root()`.
+- **`config` module**: TOML config loading with env overrides, global/project merge, save/load helpers. `load()`, `load_merged()`, `save()`.
+- **`tokens` module**: Token estimation (`estimate()`, `savings_percent()`) using ~4 chars = 1 token heuristic.
+- **`logging` module**: Shared `tracing_subscriber` initialization. `init()`, `init_with_env()`.
+- **`self_update` module**: GitHub release checking, downloading, extraction, and binary replacement. `run()`, `fetch_latest_release()`, `target_asset_name()`.
+
+### Changed
+
+- **McpClient timeout enforcement**: Timeout is now properly enforced using a separate reader thread with channel `recv_timeout`. A hung subprocess is killed after the configured timeout.
+- **Dependencies**: Added `dirs`, `toml`, `ureq`, `tempfile`, `tracing`, `tracing-subscriber`.
+- **Version bump**: 0.2.1 → 0.3.0 (new public API modules).
+
+## [0.2.1] - 2026-03-20
+
+### Added
+
+- **Cap** added to `Tool` enum.
+- **`Framing::LineDelimited`** mode for ecosystem MCP servers.
+
 ## [0.1.1] - 2026-03-18
 
 ### Added
