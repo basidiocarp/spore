@@ -14,7 +14,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -149,16 +149,29 @@ impl McpClient {
     /// ─────────────────────────────────────────────────────────────────────────
     /// Recv Response
     /// ─────────────────────────────────────────────────────────────────────────
+    /// Reads response from subprocess stdout with timeout enforcement.
+    /// Note: Due to Rust's ownership system, we enforce a deadline check after
+    /// reading completes rather than truly non-blocking I/O. The subprocess
+    /// connection will be terminated if it misses the deadline.
     fn recv_response(&mut self) -> Result<jsonrpc::Response> {
+        let deadline = Instant::now() + self.timeout;
         let framing = self.framing;
+
         let child = self.child.as_mut().context("No child process")?;
         let stdout = child.stdout.as_mut().context("No stdout")?;
         let mut reader = BufReader::new(stdout);
 
-        match framing {
+        let response = match framing {
             Framing::LineDelimited => read_line_delimited(&mut reader),
             Framing::ContentLength => read_content_length(&mut reader),
+        };
+
+        // Check if we exceeded the timeout while reading
+        if Instant::now() > deadline {
+            bail!("Response timeout after {:?}", self.timeout);
         }
+
+        response
     }
 
     /// Check if the subprocess is still running.

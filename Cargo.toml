@@ -1,6 +1,6 @@
 [package]
 name = "spore"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["William Newton"]
 description = "Shared IPC primitives for the Basidiocarp ecosystem — tool discovery, JSON-RPC, and subprocess communication"
