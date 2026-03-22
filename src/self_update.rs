@@ -111,8 +111,8 @@ pub fn fetch_latest_release(
             )
         })?;
 
-    let json: serde_json::Value = serde_json::from_reader(response.into_body().as_reader())
-        .map_err(|e| SporeError::Json(e))?;
+    let json: serde_json::Value =
+        serde_json::from_reader(response.into_body().as_reader()).map_err(SporeError::Json)?;
     Ok(json)
 }
 
@@ -236,7 +236,7 @@ fn extract_binary(archive_bytes: &[u8], asset_name: &str, binary_name: &str) -> 
         let contents = std::fs::read_dir(tmp_dir.path())
             .map(|entries| {
                 entries
-                    .filter_map(|e| e.ok())
+                    .filter_map(std::result::Result::ok)
                     .map(|e| e.file_name().to_string_lossy().to_string())
                     .collect::<Vec<_>>()
             })

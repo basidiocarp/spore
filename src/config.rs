@@ -51,7 +51,7 @@ pub fn load_from_path<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
     if path.exists() {
         let content = std::fs::read_to_string(path)
             .map_err(|_| SporeError::Config(format!("failed to read {}", path.display())))?;
-        let config: T = toml::from_str(&content).map_err(|e| SporeError::Toml(e))?;
+        let config: T = toml::from_str(&content).map_err(SporeError::Toml)?;
         Ok(config)
     } else {
         Ok(T::default())
