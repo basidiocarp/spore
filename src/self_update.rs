@@ -6,7 +6,7 @@
 use std::io::{Read, Write};
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use crate::error::{Result, SporeError};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -36,10 +36,10 @@ pub fn run(
     std::io::stdout().flush().ok();
 
     let latest = fetch_latest_release(binary_name, current_version, repo_url)
-        .context("Failed to check for updates")?;
-    let latest_tag = latest["tag_name"]
-        .as_str()
-        .context("Missing tag_name in GitHub API response")?;
+        .map_err(|_| SporeError::Network("Failed to check for updates".to_string()))?;
+    let latest_tag = latest["tag_name"].as_str().ok_or_else(|| {
+        SporeError::Network("Missing tag_name in GitHub API response".to_string())
+    })?;
 
     let latest_version = latest_tag.trim_start_matches('v');
     println!("Latest version: {latest_tag}");
@@ -56,22 +56,24 @@ pub fn run(
         return Ok(());
     }
 
-    let asset_name =
-        target_asset_name(binary_name).context("Unsupported platform for self-update")?;
+    let asset_name = target_asset_name(binary_name)
+        .ok_or_else(|| SporeError::Other("Unsupported platform for self-update".to_string()))?;
     let download_url = find_asset_url(&latest["assets"], &asset_name)
-        .with_context(|| format!("No release asset found for '{asset_name}'"))?;
+        .ok_or_else(|| SporeError::Network(format!("No release asset found for '{asset_name}'")))?;
 
-    let current_exe = std::env::current_exe().context("Failed to locate current executable")?;
+    let current_exe = std::env::current_exe()
+        .map_err(|_| SporeError::Other("Failed to locate current executable".to_string()))?;
 
     println!("Downloading {asset_name}...");
     let archive_bytes = download_binary(binary_name, current_version, &download_url)
-        .context("Failed to download update archive")?;
+        .map_err(|_| SporeError::Network("Failed to download update archive".to_string()))?;
 
     println!("Extracting...");
     let binary_bytes = extract_binary(&archive_bytes, &asset_name, binary_name)
-        .context("Failed to extract binary from archive")?;
+        .map_err(|_| SporeError::Other("Failed to extract binary from archive".to_string()))?;
 
-    replace_binary(binary_name, &current_exe, &binary_bytes).context("Failed to replace binary")?;
+    replace_binary(binary_name, &current_exe, &binary_bytes)
+        .map_err(|_| SporeError::Other("Failed to replace binary".to_string()))?;
 
     println!("Updated to {latest_tag}. Run `{binary_name} --version` to confirm.");
     Ok(())
@@ -94,7 +96,7 @@ pub fn fetch_latest_release(
     let repo_path = repo_url
         .trim_end_matches('/')
         .strip_prefix("https://github.com/")
-        .context("Repository URL is not a github.com URL")?;
+        .ok_or_else(|| SporeError::Network("Repository URL is not a github.com URL".to_string()))?;
     let api_url = format!("https://api.github.com/repos/{repo_path}/releases/latest");
 
     let agent = ureq::Agent::new_with_defaults();
@@ -103,10 +105,14 @@ pub fn fetch_latest_release(
         .header("User-Agent", &format!("{binary_name}/{current_version}"))
         .header("Accept", "application/vnd.github+json")
         .call()
-        .context("Failed to fetch latest release (check your internet connection)")?;
+        .map_err(|_| {
+            SporeError::Network(
+                "Failed to fetch latest release (check your internet connection)".to_string(),
+            )
+        })?;
 
     let json: serde_json::Value = serde_json::from_reader(response.into_body().as_reader())
-        .context("Invalid JSON from GitHub API")?;
+        .map_err(|e| SporeError::Json(e))?;
     Ok(json)
 }
 
@@ -160,17 +166,17 @@ fn download_binary(binary_name: &str, current_version: &str, url: &str) -> Resul
         .get(url)
         .header("User-Agent", &format!("{binary_name}/{current_version}"))
         .call()
-        .context("Download failed")?;
+        .map_err(|_| SporeError::Network("Download failed".to_string()))?;
 
     let mut bytes = Vec::new();
     response
         .into_body()
         .as_reader()
         .read_to_end(&mut bytes)
-        .context("Failed to read download response")?;
+        .map_err(|_| SporeError::Network("Failed to read download response".to_string()))?;
 
     if bytes.is_empty() {
-        bail!("Downloaded binary is empty");
+        return Err(SporeError::Other("Downloaded binary is empty".to_string()));
     }
     Ok(bytes)
 }
@@ -182,10 +188,12 @@ fn download_binary(binary_name: &str, current_version: &str, url: &str) -> Resul
 fn extract_binary(archive_bytes: &[u8], asset_name: &str, binary_name: &str) -> Result<Vec<u8>> {
     use std::process::Command;
 
-    let tmp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
+    let tmp_dir = tempfile::tempdir()
+        .map_err(|_| SporeError::Other("Failed to create temp directory".to_string()))?;
     let archive_path = tmp_dir.path().join(asset_name);
 
-    std::fs::write(&archive_path, archive_bytes).context("Failed to write archive to temp file")?;
+    std::fs::write(&archive_path, archive_bytes)
+        .map_err(|_| SporeError::Other("Failed to write archive to temp file".to_string()))?;
 
     let exe_name = if cfg!(windows) {
         format!("{binary_name}.exe")
@@ -195,37 +203,47 @@ fn extract_binary(archive_bytes: &[u8], asset_name: &str, binary_name: &str) -> 
 
     if asset_name.ends_with(".tar.gz") {
         let status = Command::new("tar")
-            .args(["xzf", &archive_path.to_string_lossy(), "-C"])
+            .args(["xzf"])
+            .arg(archive_path.as_os_str())
+            .arg("-C")
             .arg(tmp_dir.path())
             .status()
-            .context("Failed to run tar (is it installed?)")?;
+            .map_err(|_| SporeError::Other("Failed to run tar (is it installed?)".to_string()))?;
         if !status.success() {
-            bail!("tar extraction failed with exit code {status}");
+            return Err(SporeError::Other(format!(
+                "tar extraction failed with exit code {status}"
+            )));
         }
     } else if asset_name.to_ascii_lowercase().ends_with(".zip") {
         let status = Command::new("unzip")
-            .args(["-o", &*archive_path.to_string_lossy(), "-d"])
+            .args(["-o"])
+            .arg(archive_path.as_os_str())
+            .arg("-d")
             .arg(tmp_dir.path())
             .status()
-            .context("Failed to run unzip (is it installed?)")?;
+            .map_err(|_| SporeError::Other("Failed to run unzip (is it installed?)".to_string()))?;
         if !status.success() {
-            bail!("unzip extraction failed with exit code {status}");
+            return Err(SporeError::Other(format!(
+                "unzip extraction failed with exit code {status}"
+            )));
         }
     } else {
         return Ok(archive_bytes.to_vec());
     }
 
     let extracted = tmp_dir.path().join(&exe_name);
-    std::fs::read(&extracted).with_context(|| {
-        format!(
-            "Binary '{exe_name}' not found in archive. Contents: {:?}",
-            std::fs::read_dir(tmp_dir.path())
-                .map(|entries| entries
-                    .filter_map(Result::ok)
+    std::fs::read(&extracted).map_err(|_| {
+        let contents = std::fs::read_dir(tmp_dir.path())
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
                     .map(|e| e.file_name().to_string_lossy().to_string())
-                    .collect::<Vec<_>>())
-                .unwrap_or_default()
-        )
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        SporeError::Other(format!(
+            "Binary '{exe_name}' not found in archive. Contents: {contents:?}"
+        ))
     })
 }
 
@@ -236,14 +254,16 @@ fn extract_binary(archive_bytes: &[u8], asset_name: &str, binary_name: &str) -> 
 fn replace_binary(binary_name: &str, current_exe: &Path, binary_bytes: &[u8]) -> Result<()> {
     let parent = current_exe
         .parent()
-        .context("Executable has no parent directory")?;
+        .ok_or_else(|| SporeError::Other("Executable has no parent directory".to_string()))?;
     let tmp_path = parent.join(format!(".{binary_name}-update.tmp"));
 
     let write_result = (|| -> Result<()> {
-        let mut tmp = std::fs::File::create(&tmp_path).context("Failed to create temp file")?;
+        let mut tmp = std::fs::File::create(&tmp_path)
+            .map_err(|_| SporeError::Other("Failed to create temp file".to_string()))?;
         tmp.write_all(binary_bytes)
-            .context("Failed to write update to temp file")?;
-        tmp.flush().context("Failed to flush temp file")?;
+            .map_err(|_| SporeError::Other("Failed to write update to temp file".to_string()))?;
+        tmp.flush()
+            .map_err(|_| SporeError::Other("Failed to flush temp file".to_string()))?;
         Ok(())
     })();
 
@@ -256,18 +276,18 @@ fn replace_binary(binary_name: &str, current_exe: &Path, binary_bytes: &[u8]) ->
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
-            .context("Failed to set executable permissions")?;
+            .map_err(|_| SporeError::Other("Failed to set executable permissions".to_string()))?;
     }
 
     std::fs::rename(&tmp_path, current_exe).map_err(|e| {
         let _ = std::fs::remove_file(&tmp_path);
         if e.kind() == std::io::ErrorKind::PermissionDenied {
-            anyhow::anyhow!(
+            SporeError::Other(format!(
                 "Permission denied replacing binary at {}. Try: sudo {binary_name} self-update",
                 current_exe.display()
-            )
+            ))
         } else {
-            anyhow::anyhow!("Failed to replace binary: {e}")
+            SporeError::Other(format!("Failed to replace binary: {e}"))
         }
     })?;
 

@@ -8,9 +8,9 @@
 //! - `ContentLength`: LSP-style headers + body, used by LSP servers
 
 use crate::discovery::discover;
+use crate::error::{Result, SporeError};
 use crate::jsonrpc;
 use crate::types::Tool;
-use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
@@ -36,6 +36,11 @@ pub enum Framing {
     ContentLength,
 }
 
+/// ─────────────────────────────────────────────────────────────────────────
+/// MCP Client
+/// ─────────────────────────────────────────────────────────────────────────
+/// MCP subprocess client. NOT thread-safe — must be used from a single thread.
+/// Use separate `McpClient` instances for concurrent access to the same tool.
 pub struct McpClient {
     tool: Tool,
     args: Vec<String>,
@@ -102,7 +107,10 @@ impl McpClient {
         );
 
         let encoded = jsonrpc::encode(&request);
-        let _child = self.child.as_mut().context("No child process")?;
+        let _child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| SporeError::Other("No child process".to_string()))?;
 
         // ─────────────────────────────────────────────────────────────────────
         // Write Request
@@ -115,34 +123,51 @@ impl McpClient {
         let response = self.recv_response()?;
 
         if let Some(error) = response.error {
-            bail!("RPC error {}: {}", error.code, error.message);
+            return Err(SporeError::RpcError {
+                code: error.code,
+                message: error.message,
+            });
         }
 
-        response.result.context("Empty result in response")
+        response
+            .result
+            .ok_or_else(|| SporeError::Other("Empty result in response".to_string()))
     }
 
     /// ─────────────────────────────────────────────────────────────────────────
     /// Send Request
     /// ─────────────────────────────────────────────────────────────────────────
     fn send_request(&mut self, encoded: &str) -> Result<()> {
-        let child = self.child.as_mut().context("No child process")?;
-        let stdin = child.stdin.as_mut().context("No stdin")?;
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| SporeError::Other("No child process".to_string()))?;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| SporeError::Other("No stdin".to_string()))?;
 
         match self.framing {
             Framing::LineDelimited => {
                 // Write JSON object + newline
-                stdin.write_all(encoded.as_bytes())?;
-                stdin.write_all(b"\n")?;
+                stdin
+                    .write_all(encoded.as_bytes())
+                    .map_err(SporeError::SpawnFailed)?;
+                stdin.write_all(b"\n").map_err(SporeError::SpawnFailed)?;
             }
             Framing::ContentLength => {
                 // Write as LSP-style: Content-Length header + blank line + body
                 let header = format!("Content-Length: {}\r\n\r\n", encoded.len());
-                stdin.write_all(header.as_bytes())?;
-                stdin.write_all(encoded.as_bytes())?;
+                stdin
+                    .write_all(header.as_bytes())
+                    .map_err(SporeError::SpawnFailed)?;
+                stdin
+                    .write_all(encoded.as_bytes())
+                    .map_err(SporeError::SpawnFailed)?;
             }
         }
 
-        stdin.flush()?;
+        stdin.flush().map_err(SporeError::SpawnFailed)?;
         Ok(())
     }
 
@@ -157,8 +182,14 @@ impl McpClient {
         let framing = self.framing;
         let timeout = self.timeout;
 
-        let child = self.child.as_mut().context("No child process")?;
-        let stdout = child.stdout.take().context("No stdout")?;
+        let child = self
+            .child
+            .as_mut()
+            .ok_or_else(|| SporeError::Other("No child process".to_string()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| SporeError::Other("No stdout".to_string()))?;
 
         let (tx, rx) = std::sync::mpsc::channel();
 
@@ -176,14 +207,19 @@ impl McpClient {
 
         if let Ok((result, stdout_back)) = rx.recv_timeout(timeout) {
             // Put stdout back so child can be reused
-            self.child.as_mut().unwrap().stdout = Some(stdout_back);
+            if let Some(child) = self.child.as_mut() {
+                child.stdout = Some(stdout_back);
+            }
             result
         } else {
-            // Timeout expired — kill the child process
+            // Timeout expired — kill the child process.
+            // The reader thread is blocked on ChildStdout::read. When we kill the child below,
+            // its stdout closes, unblocking the thread. The thread then sends on a disconnected
+            // channel (tx dropped) and exits. No thread leak occurs in practice.
             if let Some(mut child) = self.child.take() {
                 let _ = child.kill();
             }
-            bail!("Response timeout after {timeout:?}");
+            Err(SporeError::Timeout(timeout))
         }
     }
 
@@ -206,7 +242,7 @@ impl McpClient {
         }
 
         let info =
-            discover(self.tool).with_context(|| format!("{} not found in PATH", self.tool))?;
+            discover(self.tool).ok_or_else(|| SporeError::ToolNotFound(self.tool.to_string()))?;
 
         let child = Command::new(&info.binary_path)
             .args(&self.args)
@@ -214,7 +250,7 @@ impl McpClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .with_context(|| format!("Failed to spawn {}", self.tool))?;
+            .map_err(SporeError::SpawnFailed)?;
 
         self.child = Some(child);
         Ok(())
@@ -237,13 +273,15 @@ fn read_line_delimited(
     reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
     let mut line = String::new();
-    let n = reader.read_line(&mut line)?;
+    let n = reader
+        .read_line(&mut line)
+        .map_err(SporeError::SpawnFailed)?;
 
     if n == 0 {
-        bail!("EOF while reading response");
+        return Err(SporeError::Other("EOF while reading response".to_string()));
     }
 
-    serde_json::from_str(line.trim()).context("Failed to parse line-delimited response")
+    serde_json::from_str(line.trim()).map_err(SporeError::Json)
 }
 
 /// ─────────────────────────────────────────────────────────────────────────
@@ -258,26 +296,33 @@ fn read_content_length(
     // Read headers
     loop {
         let mut line = String::new();
-        reader.read_line(&mut line)?;
+        reader
+            .read_line(&mut line)
+            .map_err(SporeError::SpawnFailed)?;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             break;
         }
         if let Some(len) = trimmed.strip_prefix("Content-Length: ") {
-            content_length = len.parse().context("Invalid Content-Length")?;
+            content_length = len
+                .parse()
+                .map_err(|_| SporeError::Other("Invalid Content-Length".to_string()))?;
         }
     }
 
     if content_length == 0 {
-        bail!("No Content-Length in response");
+        return Err(SporeError::Other(
+            "No Content-Length in response".to_string(),
+        ));
     }
 
     // Read body
     let mut body = vec![0u8; content_length];
-    std::io::Read::read_exact(reader, &mut body)?;
-    let body_str = String::from_utf8(body)?;
+    std::io::Read::read_exact(reader, &mut body).map_err(SporeError::SpawnFailed)?;
+    let body_str = String::from_utf8(body)
+        .map_err(|_| SporeError::Other("Invalid UTF-8 in response body".to_string()))?;
 
-    serde_json::from_str(&body_str).context("Failed to parse response body")
+    serde_json::from_str(&body_str).map_err(SporeError::Json)
 }
 
 #[cfg(test)]

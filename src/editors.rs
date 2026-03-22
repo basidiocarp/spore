@@ -121,10 +121,15 @@ fn editor_marker_exists(home: &Path, editor: Editor) -> bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Get the config file path for MCP server registration in the given editor.
-#[must_use]
-pub fn config_path(editor: Editor) -> PathBuf {
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-    match editor {
+///
+/// # Errors
+///
+/// Returns an error if the home directory cannot be determined.
+pub fn config_path(editor: Editor) -> crate::error::Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        crate::error::SporeError::Other("could not determine home directory".to_string())
+    })?;
+    Ok(match editor {
         Editor::ClaudeCode => home.join(".claude.json"),
         Editor::Cursor => home.join(".cursor/mcp.json"),
         Editor::VsCode => {
@@ -151,7 +156,7 @@ pub fn config_path(editor: Editor) -> PathBuf {
             }
         }
         Editor::CodexCli => home.join(".codex/config.toml"),
-    }
+    })
 }
 
 /// Get the Claude Code config directory (`~/.claude/`).
@@ -211,23 +216,24 @@ pub fn register_mcp_server(
     server_name: &str,
     binary_path: &str,
     args: &[&str],
-) -> anyhow::Result<()> {
-    use anyhow::Context;
-
-    let path = config_path(editor);
+) -> crate::error::Result<()> {
+    let path = config_path(editor)?;
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating directory {}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|_| {
+            crate::error::SporeError::Config(format!("creating directory {}", parent.display()))
+        })?;
     }
 
     let mut root: serde_json::Value = if path.exists() {
         let content = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
+            .map_err(|_| crate::error::SporeError::Config(format!("reading {}", path.display())))?;
         if content.trim().is_empty() {
             serde_json::json!({})
         } else {
-            serde_json::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
+            serde_json::from_str(&content).map_err(|_| {
+                crate::error::SporeError::Config(format!("parsing {}", path.display()))
+            })?
         }
     } else {
         serde_json::json!({})
@@ -236,7 +242,9 @@ pub fn register_mcp_server(
     // Backup existing file
     if path.exists() {
         let backup = path.with_extension("json.bak");
-        std::fs::copy(&path, &backup).with_context(|| format!("backing up {}", path.display()))?;
+        std::fs::copy(&path, &backup).map_err(|_| {
+            crate::error::SporeError::Config(format!("backing up {}", path.display()))
+        })?;
     }
 
     // Insert server entry
@@ -250,8 +258,10 @@ pub fn register_mcp_server(
         map.insert(server_name.to_string(), entry);
     }
 
-    let content = serde_json::to_string_pretty(&root).context("serializing config")?;
-    std::fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
+    let content = serde_json::to_string_pretty(&root)
+        .map_err(|_| crate::error::SporeError::Config("serializing config".to_string()))?;
+    std::fs::write(&path, content)
+        .map_err(|_| crate::error::SporeError::Config(format!("writing {}", path.display())))?;
 
     Ok(())
 }
@@ -313,10 +323,10 @@ mod tests {
 
     #[test]
     fn test_config_path_contains_editor_marker() {
-        let path = config_path(Editor::Cursor);
+        let path = config_path(Editor::Cursor).unwrap();
         assert!(path.to_string_lossy().contains(".cursor"));
 
-        let path = config_path(Editor::ClaudeCode);
+        let path = config_path(Editor::ClaudeCode).unwrap();
         assert!(path.to_string_lossy().contains(".claude.json"));
     }
 
@@ -350,7 +360,7 @@ mod tests {
     #[test]
     fn test_register_mcp_server_creates_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("test.json");
+        let _path = dir.path().join("test.json");
 
         // Override won't work since config_path uses home dir,
         // so test the JSON manipulation directly

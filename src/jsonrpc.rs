@@ -7,7 +7,7 @@ static NEXT_ID: AtomicI64 = AtomicI64::new(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
-    pub jsonrpc: String,
+    pub jsonrpc: &'static str,
     pub id: i64,
     pub method: String,
     #[serde(default)]
@@ -18,7 +18,7 @@ impl Request {
     #[must_use]
     pub fn new(method: &str, params: Value) -> Self {
         Self {
-            jsonrpc: "2.0".to_string(),
+            jsonrpc: "2.0",
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
             method: method.to_string(),
             params,

@@ -1,21 +1,22 @@
 use crate::types::{Tool, ToolInfo};
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
-static CACHE: OnceLock<HashMap<Tool, Option<ToolInfo>>> = OnceLock::new();
+static MYCELIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static HYPHAE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static RHIZOME_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static CAP_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 
 /// Discover a specific ecosystem tool in PATH.
 /// Results are cached for the lifetime of the process.
 #[must_use]
 pub fn discover(tool: Tool) -> Option<ToolInfo> {
-    let cache = CACHE.get_or_init(|| {
-        let mut map = HashMap::new();
-        for &t in Tool::all() {
-            map.insert(t, probe(t));
-        }
-        map
-    });
-    cache.get(&tool).and_then(Clone::clone)
+    let cache = match tool {
+        Tool::Mycelium => &MYCELIUM_CACHE,
+        Tool::Hyphae => &HYPHAE_CACHE,
+        Tool::Rhizome => &RHIZOME_CACHE,
+        Tool::Cap => &CAP_CACHE,
+    };
+    cache.get_or_init(|| probe(tool)).clone()
 }
 
 /// Discover all ecosystem tools in PATH.

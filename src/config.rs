@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 
+use crate::error::{Result, SporeError};
 use crate::paths;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,10 +49,9 @@ pub fn load<T: DeserializeOwned + Default>(app_name: &str, env_var: Option<&str>
 /// Returns an error if the file exists but cannot be read or parsed.
 pub fn load_from_path<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
     if path.exists() {
-        let content =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let config: T =
-            toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|_| SporeError::Config(format!("failed to read {}", path.display())))?;
+        let config: T = toml::from_str(&content).map_err(|e| SporeError::Toml(e))?;
         Ok(config)
     } else {
         Ok(T::default())
@@ -117,12 +116,18 @@ pub fn save<T: serde::Serialize>(app_name: &str, config: &T) -> Result<PathBuf> 
 /// Returns an error if directories cannot be created or the file cannot be written.
 pub fn save_to_path<T: serde::Serialize>(path: &Path, config: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating config directory {}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|_| {
+            SporeError::Config(format!(
+                "failed to create config directory {}",
+                parent.display()
+            ))
+        })?;
     }
 
-    let content = toml::to_string_pretty(config).context("serializing config to TOML")?;
-    std::fs::write(path, content).with_context(|| format!("writing {}", path.display()))?;
+    let content = toml::to_string_pretty(config)
+        .map_err(|_| SporeError::Config("failed to serialize config to TOML".to_string()))?;
+    std::fs::write(path, content)
+        .map_err(|_| SporeError::Config(format!("failed to write {}", path.display())))?;
     Ok(())
 }
 

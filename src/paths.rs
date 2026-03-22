@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use crate::error::{Result, SporeError};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config Paths
@@ -94,8 +94,12 @@ pub fn db_path(
     };
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating data directory {}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|_| {
+            SporeError::Path(format!(
+                "failed to create data directory {}",
+                parent.display()
+            ))
+        })?;
     }
 
     Ok(path)
