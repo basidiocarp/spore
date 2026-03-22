@@ -174,19 +174,16 @@ impl McpClient {
             let _ = tx.send((result, stdout_back));
         });
 
-        match rx.recv_timeout(timeout) {
-            Ok((result, stdout_back)) => {
-                // Put stdout back so child can be reused
-                self.child.as_mut().unwrap().stdout = Some(stdout_back);
-                result
+        if let Ok((result, stdout_back)) = rx.recv_timeout(timeout) {
+            // Put stdout back so child can be reused
+            self.child.as_mut().unwrap().stdout = Some(stdout_back);
+            result
+        } else {
+            // Timeout expired — kill the child process
+            if let Some(mut child) = self.child.take() {
+                let _ = child.kill();
             }
-            Err(_) => {
-                // Timeout expired - kill the child process
-                if let Some(mut child) = self.child.take() {
-                    let _ = child.kill();
-                }
-                bail!("Response timeout after {timeout:?}");
-            }
+            bail!("Response timeout after {timeout:?}");
         }
     }
 

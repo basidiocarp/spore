@@ -1,5 +1,6 @@
 pub mod config;
 pub mod discovery;
+pub mod editors;
 pub mod jsonrpc;
 pub mod logging;
 pub mod paths;

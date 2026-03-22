@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-03-22
+
+### Added
+
+- **`editors` module**: Editor detection, config paths, and MCP server registration. `detect()` finds installed editors, `config_path()` returns the right config file, `register_mcp_server()` handles JSON merging and backup. 8 editors: Claude Code, Cursor, VS Code, Zed, Windsurf, Amp, Claude Desktop, Codex CLI.
+
 ## [0.3.0] - 2026-03-21
 
 ### Added
