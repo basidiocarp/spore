@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0] - 2026-03-22
+
+### Changed
+
+- **thiserror migration**: All public APIs return `Result<T, SporeError>` instead of `anyhow::Result<T>`. Consumers can now match on specific error variants (ToolNotFound, RpcError, Timeout, Config, etc.).
+- **Lazy tool discovery**: Per-tool `OnceLock` replaces eager HashMap probe. `discover(Tool::Hyphae)` no longer probes all four tools on first call.
+- **Request.jsonrpc**: Changed from `String` to `&'static str`. Eliminates heap allocation and enforces the `"2.0"` invariant at compile time.
+
+### Fixed
+
+- **recv_response unwrap**: Replaced `.unwrap()` with safe `if let` pattern on child process restoration.
+- **Path arguments**: `tar` and `unzip` commands now receive `OsStr` paths instead of lossy UTF-8 conversions.
+- **config_path**: Returns `Result<PathBuf>` instead of silently falling back to `/` when home directory is unavailable.
+
+### Added
+
+- **SporeError enum**: Typed error variants — `ToolNotFound`, `SpawnFailed`, `RpcError`, `Timeout`, `Config`, `Path`, `Network`, `Json`, `Toml`, `Other`.
+- **McpClient docs**: Thread-safety requirements documented.
+- **Timeout docs**: Reader thread lifecycle on timeout documented.
+
 ## [0.3.1] - 2026-03-22
 
 ### Added

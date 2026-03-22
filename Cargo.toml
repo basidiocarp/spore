@@ -1,6 +1,6 @@
 [package]
 name = "spore"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 authors = ["William Newton"]
 description = "Shared infrastructure for the Basidiocarp ecosystem — tool discovery, JSON-RPC, subprocess communication, config loading, self-update, and platform paths"
