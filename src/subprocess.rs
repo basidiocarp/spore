@@ -106,7 +106,12 @@ impl McpClient {
             }),
         );
 
-        let encoded = jsonrpc::encode(&request);
+        let encoded = match self.framing {
+            Framing::LineDelimited => serde_json::to_string(&request).map_err(|e| {
+                SporeError::Other(format!("Failed to encode JSON-RPC request: {e}"))
+            })?,
+            Framing::ContentLength => jsonrpc::encode(&request),
+        };
         let _child = self
             .child
             .as_mut()
@@ -272,16 +277,27 @@ impl Drop for McpClient {
 fn read_line_delimited(
     reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
-    let mut line = String::new();
-    let n = reader
-        .read_line(&mut line)
-        .map_err(SporeError::SpawnFailed)?;
+    loop {
+        let mut line = String::new();
+        let n = reader
+            .read_line(&mut line)
+            .map_err(SporeError::SpawnFailed)?;
 
-    if n == 0 {
-        return Err(SporeError::Other("EOF while reading response".to_string()));
+        if n == 0 {
+            return Err(SporeError::Other("EOF while reading response".to_string()));
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if !trimmed.starts_with('{') {
+            continue;
+        }
+
+        return serde_json::from_str(trimmed).map_err(SporeError::Json);
     }
-
-    serde_json::from_str(line.trim()).map_err(SporeError::Json)
 }
 
 /// ─────────────────────────────────────────────────────────────────────────
@@ -346,20 +362,33 @@ mod tests {
     ///
     /// The mock reads until it sees a newline, then writes a canned JSON-RPC
     /// response as a line, and blocks until killed.
-    fn mock_server_line_delimited() -> McpClient {
-        let script = r#"
+    fn mock_server_line_delimited_with_preamble(preamble: Option<&str>) -> McpClient {
+        let preamble = preamble.unwrap_or("");
+        let script = format!(
+            r#"
 import sys
 # Read until we see newline (end of line-delimited JSON)
 line = sys.stdin.readline()
+if not line.lstrip().startswith('{{'):
+    resp = '{{"jsonrpc":"2.0","id":1,"error":{{"code":-32700,"message":"bad framing"}}}}'
+    sys.stdout.write(resp + '\n')
+    sys.stdout.flush()
+    sys.stdin.read()
+    sys.exit(0)
+if {emit_preamble}:
+    sys.stdout.write({preamble:?} + '\n')
 # Write response as newline-delimited JSON
-resp = '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}'
+resp = '{{"jsonrpc":"2.0","id":1,"result":{{"content":[{{"type":"text","text":"ok"}}]}}}}'
 sys.stdout.write(resp + '\n')
 sys.stdout.flush()
 # Block until killed
 sys.stdin.read()
-"#;
+"#,
+            emit_preamble = if preamble.is_empty() { "False" } else { "True" },
+            preamble = preamble,
+        );
         let child = Command::new("python3")
-            .args(["-c", script])
+            .args(["-c", &script])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -373,6 +402,10 @@ sys.stdin.read()
             timeout: Duration::from_secs(5),
             framing: Framing::LineDelimited,
         }
+    }
+
+    fn mock_server_line_delimited() -> McpClient {
+        mock_server_line_delimited_with_preamble(None)
     }
 
     /// Helper: build an `McpClient` backed by a Python mock MCP server using
@@ -480,6 +513,23 @@ sys.stdin.read()
     }
 
     #[test]
+    fn test_call_tool_on_line_delimited_server_skips_stdout_noise() {
+        let mut client =
+            mock_server_line_delimited_with_preamble(Some("2026-03-23T18:37:49Z ERROR noisy log"));
+        let result = client.call_tool("test_tool", serde_json::json!({"key": "value"}));
+        assert!(result.is_ok(), "call_tool failed: {result:?}");
+
+        let value = result.unwrap();
+        let content = value.get("content").expect("missing content field");
+        let first = content
+            .as_array()
+            .expect("content not array")
+            .first()
+            .unwrap();
+        assert_eq!(first.get("text").and_then(|v| v.as_str()), Some("ok"));
+    }
+
+    #[test]
     fn test_call_tool_on_mock_server_content_length() {
         let mut client = mock_server_content_length();
         let result = client.call_tool("test_tool", serde_json::json!({"key": "value"}));
@@ -555,7 +605,7 @@ sys.stdin.read()
                 "arguments": {},
             }),
         );
-        let encoded = jsonrpc::encode(&request);
+        let encoded = serde_json::to_string(&request).expect("request serialization should work");
         client.send_request(&encoded).expect("send_request failed");
 
         // recv_response should timeout and kill the child
