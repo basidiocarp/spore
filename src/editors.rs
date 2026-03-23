@@ -23,6 +23,8 @@ pub enum Editor {
     Amp,
     ClaudeDesktop,
     CodexCli,
+    GeminiCli,
+    CopilotCli,
 }
 
 impl Editor {
@@ -38,6 +40,8 @@ impl Editor {
             Self::Amp,
             Self::ClaudeDesktop,
             Self::CodexCli,
+            Self::GeminiCli,
+            Self::CopilotCli,
         ]
     }
 
@@ -53,6 +57,8 @@ impl Editor {
             Self::Amp => "Amp",
             Self::ClaudeDesktop => "Claude Desktop",
             Self::CodexCli => "Codex CLI",
+            Self::GeminiCli => "Gemini CLI",
+            Self::CopilotCli => "Copilot CLI",
         }
     }
 
@@ -62,6 +68,7 @@ impl Editor {
         match self {
             Self::VsCode => "servers",
             Self::Zed => "context_servers",
+            Self::CodexCli => "mcp_servers",
             _ => "mcpServers",
         }
     }
@@ -113,6 +120,8 @@ fn editor_marker_exists(home: &Path, editor: Editor) -> bool {
         Editor::Amp => home.join(".config/amp").is_dir(),
         Editor::ClaudeDesktop => claude_desktop_dir(home).exists(),
         Editor::CodexCli => home.join(".codex").is_dir(),
+        Editor::GeminiCli => home.join(".gemini").is_dir(),
+        Editor::CopilotCli => home.join(".copilot").is_dir(),
     }
 }
 
@@ -156,6 +165,8 @@ pub fn config_path(editor: Editor) -> crate::error::Result<PathBuf> {
             }
         }
         Editor::CodexCli => home.join(".codex/config.toml"),
+        Editor::GeminiCli => home.join(".gemini/settings.json"),
+        Editor::CopilotCli => home.join(".copilot/mcp-config.json"),
     })
 }
 
@@ -190,6 +201,11 @@ pub fn mcp_entry(editor: Editor, binary_path: &str, args: &[&str]) -> serde_json
                 "args": args
             }
         }),
+        Editor::CopilotCli => serde_json::json!({
+            "type": "local",
+            "command": binary_path,
+            "args": args
+        }),
         _ => serde_json::json!({
             "command": binary_path,
             "args": args
@@ -212,6 +228,18 @@ pub fn mcp_entry(editor: Editor, binary_path: &str, args: &[&str]) -> serde_json
 /// Panics if the root JSON value is not an object (should not happen since
 /// we construct it as `json!({})`).
 pub fn register_mcp_server(
+    editor: Editor,
+    server_name: &str,
+    binary_path: &str,
+    args: &[&str],
+) -> crate::error::Result<()> {
+    if editor.uses_toml() {
+        return register_mcp_server_toml(editor, server_name, binary_path, args);
+    }
+    register_mcp_server_json(editor, server_name, binary_path, args)
+}
+
+fn register_mcp_server_json(
     editor: Editor,
     server_name: &str,
     binary_path: &str,
@@ -260,6 +288,75 @@ pub fn register_mcp_server(
 
     let content = serde_json::to_string_pretty(&root)
         .map_err(|_| crate::error::SporeError::Config("serializing config".to_string()))?;
+    std::fs::write(&path, content)
+        .map_err(|_| crate::error::SporeError::Config(format!("writing {}", path.display())))?;
+
+    Ok(())
+}
+
+fn register_mcp_server_toml(
+    editor: Editor,
+    server_name: &str,
+    binary_path: &str,
+    args: &[&str],
+) -> crate::error::Result<()> {
+    let path = config_path(editor)?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| {
+            crate::error::SporeError::Config(format!("creating directory {}", parent.display()))
+        })?;
+    }
+
+    let mut root: toml::Value = if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|_| crate::error::SporeError::Config(format!("reading {}", path.display())))?;
+        if content.trim().is_empty() {
+            toml::Value::Table(toml::map::Map::new())
+        } else {
+            content.parse().map_err(|_| {
+                crate::error::SporeError::Config(format!("parsing TOML {}", path.display()))
+            })?
+        }
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+
+    // Backup existing file
+    if path.exists() {
+        let backup = path.with_extension("toml.bak");
+        std::fs::copy(&path, &backup).map_err(|_| {
+            crate::error::SporeError::Config(format!("backing up {}", path.display()))
+        })?;
+    }
+
+    // Build server entry as TOML table
+    let mut server_table = toml::map::Map::new();
+    server_table.insert(
+        "command".to_string(),
+        toml::Value::String(binary_path.to_string()),
+    );
+    server_table.insert(
+        "args".to_string(),
+        toml::Value::Array(
+            args.iter()
+                .map(|a| toml::Value::String((*a).to_string()))
+                .collect(),
+        ),
+    );
+
+    // Insert under [mcp_servers.<server_name>]
+    let key = editor.mcp_key();
+    let root_table = root.as_table_mut().expect("root must be a TOML table");
+    let servers = root_table
+        .entry(key)
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    if let Some(table) = servers.as_table_mut() {
+        table.insert(server_name.to_string(), toml::Value::Table(server_table));
+    }
+
+    let content = toml::to_string_pretty(&root)
+        .map_err(|_| crate::error::SporeError::Config("serializing TOML config".to_string()))?;
     std::fs::write(&path, content)
         .map_err(|_| crate::error::SporeError::Config(format!("writing {}", path.display())))?;
 
@@ -388,6 +485,46 @@ mod tests {
 
     #[test]
     fn test_all_editors_count() {
-        assert_eq!(Editor::all().len(), 8);
+        assert_eq!(Editor::all().len(), 10);
+    }
+
+    #[test]
+    fn test_gemini_config_path() {
+        let path = config_path(Editor::GeminiCli).unwrap();
+        assert!(path.to_string_lossy().contains(".gemini"));
+        assert!(path.to_string_lossy().ends_with("settings.json"));
+    }
+
+    #[test]
+    fn test_copilot_config_path() {
+        let path = config_path(Editor::CopilotCli).unwrap();
+        assert!(path.to_string_lossy().contains(".copilot"));
+        assert!(path.to_string_lossy().ends_with("mcp-config.json"));
+    }
+
+    #[test]
+    fn test_copilot_mcp_entry_has_type_local() {
+        let entry = mcp_entry(Editor::CopilotCli, "/usr/bin/hyphae", &["serve"]);
+        assert_eq!(entry["type"], "local");
+        assert_eq!(entry["command"], "/usr/bin/hyphae");
+    }
+
+    #[test]
+    fn test_gemini_mcp_entry_standard() {
+        let entry = mcp_entry(Editor::GeminiCli, "/usr/bin/hyphae", &["serve"]);
+        assert_eq!(entry["command"], "/usr/bin/hyphae");
+        assert!(entry.get("type").is_none());
+    }
+
+    #[test]
+    fn test_codex_uses_toml() {
+        assert!(Editor::CodexCli.uses_toml());
+        assert!(!Editor::GeminiCli.uses_toml());
+        assert!(!Editor::CopilotCli.uses_toml());
+    }
+
+    #[test]
+    fn test_codex_mcp_key() {
+        assert_eq!(Editor::CodexCli.mcp_key(), "mcp_servers");
     }
 }
