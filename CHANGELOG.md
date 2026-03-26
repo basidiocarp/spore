@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.3] - 2026-03-26
+
+### Added
+
+- **Batch MCP registration**: `editors::register_mcp_servers()` and `McpServer` let callers merge multiple MCP servers into one config update and backup cycle.
+
+### Changed
+
+- **Windows-aware editor paths**: Claude Desktop and VS Code config path helpers now resolve through platform-aware config directories instead of assuming Unix-style locations.
+- **Shared editor config writing**: JSON and TOML MCP registration paths now batch multiple server writes consistently for downstream tools such as `stipe`.
+
 ## [0.4.0] - 2026-03-22
 
 ### Changed

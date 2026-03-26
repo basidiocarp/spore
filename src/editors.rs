@@ -141,29 +141,11 @@ pub fn config_path(editor: Editor) -> crate::error::Result<PathBuf> {
     Ok(match editor {
         Editor::ClaudeCode => home.join(".claude.json"),
         Editor::Cursor => home.join(".cursor/mcp.json"),
-        Editor::VsCode => {
-            #[cfg(target_os = "macos")]
-            {
-                home.join("Library/Application Support/Code/User/settings.json")
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                home.join(".config/Code/User/settings.json")
-            }
-        }
+        Editor::VsCode => vscode_settings_path(&home),
         Editor::Zed => home.join(".zed/settings.json"),
         Editor::Windsurf => home.join(".codeium/windsurf/mcp_config.json"),
         Editor::Amp => home.join(".config/amp/settings.json"),
-        Editor::ClaudeDesktop => {
-            #[cfg(target_os = "macos")]
-            {
-                home.join("Library/Application Support/Claude/claude_desktop_config.json")
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                home.join(".config/Claude/claude_desktop_config.json")
-            }
-        }
+        Editor::ClaudeDesktop => claude_desktop_config_path(&home),
         Editor::CodexCli => home.join(".codex/config.toml"),
         Editor::GeminiCli => home.join(".gemini/settings.json"),
         Editor::CopilotCli => home.join(".copilot/mcp-config.json"),
@@ -213,7 +195,15 @@ pub fn mcp_entry(editor: Editor, binary_path: &str, args: &[&str]) -> serde_json
     }
 }
 
-/// Register an MCP server in an editor's JSON config file.
+/// MCP server definition for batch registration.
+#[derive(Debug, Clone, Copy)]
+pub struct McpServer<'a> {
+    pub name: &'a str,
+    pub command: &'a str,
+    pub args: &'a [&'a str],
+}
+
+/// Register an MCP server in an editor config file.
 ///
 /// Reads the existing config, merges the new server entry, backs up the
 /// original, and writes atomically. Idempotent: overwrites if the server
@@ -233,17 +223,28 @@ pub fn register_mcp_server(
     binary_path: &str,
     args: &[&str],
 ) -> crate::error::Result<()> {
-    if editor.uses_toml() {
-        return register_mcp_server_toml(editor, server_name, binary_path, args);
-    }
-    register_mcp_server_json(editor, server_name, binary_path, args)
+    let server = McpServer {
+        name: server_name,
+        command: binary_path,
+        args,
+    };
+    register_mcp_servers(editor, &[server])
 }
 
-fn register_mcp_server_json(
+/// Register one or more MCP servers in an editor config file.
+///
+/// This batches writes so the original config is backed up once per file
+/// before all server entries are merged.
+pub fn register_mcp_servers(editor: Editor, servers: &[McpServer<'_>]) -> crate::error::Result<()> {
+    if editor.uses_toml() {
+        return register_mcp_servers_toml(editor, servers);
+    }
+    register_mcp_servers_json(editor, servers)
+}
+
+fn register_mcp_servers_json(
     editor: Editor,
-    server_name: &str,
-    binary_path: &str,
-    args: &[&str],
+    servers: &[McpServer<'_>],
 ) -> crate::error::Result<()> {
     let path = config_path(editor)?;
 
@@ -275,15 +276,18 @@ fn register_mcp_server_json(
         })?;
     }
 
-    // Insert server entry
+    // Insert server entries.
     let key = editor.mcp_key();
-    let entry = mcp_entry(editor, binary_path, args);
-
     let root_obj = root.as_object_mut().expect("root must be an object");
-    let servers = root_obj.entry(key).or_insert_with(|| serde_json::json!({}));
+    let server_map = root_obj.entry(key).or_insert_with(|| serde_json::json!({}));
 
-    if let Some(map) = servers.as_object_mut() {
-        map.insert(server_name.to_string(), entry);
+    if let Some(map) = server_map.as_object_mut() {
+        for server in servers {
+            map.insert(
+                server.name.to_string(),
+                mcp_entry(editor, server.command, server.args),
+            );
+        }
     }
 
     let content = serde_json::to_string_pretty(&root)
@@ -294,11 +298,9 @@ fn register_mcp_server_json(
     Ok(())
 }
 
-fn register_mcp_server_toml(
+fn register_mcp_servers_toml(
     editor: Editor,
-    server_name: &str,
-    binary_path: &str,
-    args: &[&str],
+    servers: &[McpServer<'_>],
 ) -> crate::error::Result<()> {
     let path = config_path(editor)?;
 
@@ -330,29 +332,31 @@ fn register_mcp_server_toml(
         })?;
     }
 
-    // Build server entry as TOML table
-    let mut server_table = toml::map::Map::new();
-    server_table.insert(
-        "command".to_string(),
-        toml::Value::String(binary_path.to_string()),
-    );
-    server_table.insert(
-        "args".to_string(),
-        toml::Value::Array(
-            args.iter()
-                .map(|a| toml::Value::String((*a).to_string()))
-                .collect(),
-        ),
-    );
-
     // Insert under [mcp_servers.<server_name>]
     let key = editor.mcp_key();
     let root_table = root.as_table_mut().expect("root must be a TOML table");
-    let servers = root_table
+    let server_map = root_table
         .entry(key)
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-    if let Some(table) = servers.as_table_mut() {
-        table.insert(server_name.to_string(), toml::Value::Table(server_table));
+    if let Some(table) = server_map.as_table_mut() {
+        for server in servers {
+            let mut server_table = toml::map::Map::new();
+            server_table.insert(
+                "command".to_string(),
+                toml::Value::String(server.command.to_string()),
+            );
+            server_table.insert(
+                "args".to_string(),
+                toml::Value::Array(
+                    server
+                        .args
+                        .iter()
+                        .map(|arg| toml::Value::String((*arg).to_string()))
+                        .collect(),
+                ),
+            );
+            table.insert(server.name.to_string(), toml::Value::Table(server_table));
+        }
     }
 
     let content = toml::to_string_pretty(&root)
@@ -372,9 +376,34 @@ fn vscode_dir(home: &Path) -> PathBuf {
     {
         home.join("Library/Application Support/Code")
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join(".config"))
+            .join("Code")
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         home.join(".config/Code")
+    }
+}
+
+fn vscode_settings_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support/Code/User/settings.json")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join(".config"))
+            .join("Code")
+            .join("User")
+            .join("settings.json")
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        home.join(".config/Code/User/settings.json")
     }
 }
 
@@ -383,9 +412,33 @@ fn claude_desktop_dir(home: &Path) -> PathBuf {
     {
         home.join("Library/Application Support/Claude")
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join(".config"))
+            .join("Claude")
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         home.join(".config/Claude")
+    }
+}
+
+fn claude_desktop_config_path(home: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support/Claude/claude_desktop_config.json")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir()
+            .unwrap_or_else(|| home.join(".config"))
+            .join("Claude")
+            .join("claude_desktop_config.json")
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        home.join(".config/Claude/claude_desktop_config.json")
     }
 }
 
