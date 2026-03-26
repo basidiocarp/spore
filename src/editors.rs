@@ -235,6 +235,12 @@ pub fn register_mcp_server(
 ///
 /// This batches writes so the original config is backed up once per file
 /// before all server entries are merged.
+///
+/// # Errors
+///
+/// Returns an error if Spore cannot resolve the editor config path, create
+/// the parent config directory, read an existing config file, or write the
+/// merged editor configuration back to disk.
 pub fn register_mcp_servers(editor: Editor, servers: &[McpServer<'_>]) -> crate::error::Result<()> {
     if editor.uses_toml() {
         return register_mcp_servers_toml(editor, servers);
