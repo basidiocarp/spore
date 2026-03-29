@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.4] - 2026-03-29
+
+### Added
+
+- **Editor descriptors**: `EditorDescriptor`, `EditorConfigFormat`, `Editor::descriptor()`, and `detect_descriptors()` expose reusable editor metadata for downstream tools that need config paths, MCP keys, and config formats without re-deriving them.
+
+### Changed
+
+- **Boundary docs**: README guidance now states the intended split between `spore` editor/transport primitives and higher-level ecosystem policy in tools like `stipe`.
+
+### Fixed
+
+- **Clippy-clean test suite**: cleaned existing test-only lint issues in subprocess, self-update, and token helper tests so `cargo clippy --all-targets -- -D warnings` passes cleanly.
+
 ## [0.4.3] - 2026-03-26
 
 ### Added
