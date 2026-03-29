@@ -27,6 +27,23 @@ pub enum Editor {
     CopilotCli,
 }
 
+/// Editor config serialization format used for MCP registration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EditorConfigFormat {
+    Json,
+    Toml,
+}
+
+/// Resolved editor metadata for downstream tools that only need editor primitives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EditorDescriptor {
+    pub editor: Editor,
+    pub name: &'static str,
+    pub mcp_key: &'static str,
+    pub config_format: EditorConfigFormat,
+    pub config_path: PathBuf,
+}
+
 impl Editor {
     /// All known editors.
     #[must_use]
@@ -78,6 +95,31 @@ impl Editor {
     pub fn uses_toml(self) -> bool {
         matches!(self, Self::CodexCli)
     }
+
+    /// Config serialization format for this editor's MCP file.
+    #[must_use]
+    pub fn config_format(self) -> EditorConfigFormat {
+        if self.uses_toml() {
+            EditorConfigFormat::Toml
+        } else {
+            EditorConfigFormat::Json
+        }
+    }
+
+    /// Resolve the editor metadata that downstream orchestration layers depend on.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the config path cannot be determined.
+    pub fn descriptor(self) -> crate::error::Result<EditorDescriptor> {
+        Ok(EditorDescriptor {
+            editor: self,
+            name: self.name(),
+            mcp_key: self.mcp_key(),
+            config_format: self.config_format(),
+            config_path: config_path(self)?,
+        })
+    }
 }
 
 impl std::fmt::Display for Editor {
@@ -108,6 +150,17 @@ pub fn detect() -> Vec<Editor> {
     }
 
     editors
+}
+
+/// Detect installed editors and resolve their config metadata.
+///
+/// Editors whose metadata cannot be resolved are skipped.
+#[must_use]
+pub fn detect_descriptors() -> Vec<EditorDescriptor> {
+    detect()
+        .into_iter()
+        .filter_map(|editor| editor.descriptor().ok())
+        .collect()
 }
 
 fn editor_marker_exists(home: &Path, editor: Editor) -> bool {
@@ -472,9 +525,27 @@ mod tests {
     }
 
     #[test]
+    fn test_editor_config_format() {
+        assert_eq!(Editor::CodexCli.config_format(), EditorConfigFormat::Toml);
+        assert_eq!(Editor::Cursor.config_format(), EditorConfigFormat::Json);
+    }
+
+    #[test]
     fn test_detect_returns_vec() {
         // Just verify it doesn't panic
         let _ = detect();
+    }
+
+    #[test]
+    fn test_detect_descriptors_matches_detected_editors() {
+        let editors = detect();
+        let descriptors = detect_descriptors();
+        let descriptor_editors = descriptors
+            .into_iter()
+            .map(|descriptor| descriptor.editor)
+            .collect::<Vec<_>>();
+
+        assert_eq!(descriptor_editors, editors);
     }
 
     #[test]
@@ -484,6 +555,16 @@ mod tests {
 
         let path = config_path(Editor::ClaudeCode).unwrap();
         assert!(path.to_string_lossy().contains(".claude.json"));
+    }
+
+    #[test]
+    fn test_editor_descriptor_matches_editor_primitives() {
+        let descriptor = Editor::CodexCli.descriptor().unwrap();
+        assert_eq!(descriptor.editor, Editor::CodexCli);
+        assert_eq!(descriptor.name, "Codex CLI");
+        assert_eq!(descriptor.mcp_key, "mcp_servers");
+        assert_eq!(descriptor.config_format, EditorConfigFormat::Toml);
+        assert!(descriptor.config_path.to_string_lossy().contains(".codex"));
     }
 
     #[test]

@@ -96,17 +96,17 @@ mod tests {
 
     #[test]
     fn test_savings_percent_zero_original() {
-        assert_eq!(savings_percent("", "anything"), 0.0);
+        assert!((savings_percent("", "anything") - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_savings_percent_empty_filtered() {
-        assert_eq!(savings_percent("some text", ""), 100.0);
+        assert!((savings_percent("some text", "") - 100.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn test_savings_percent_no_savings() {
         let text = "hello";
-        assert_eq!(savings_percent(text, text), 0.0);
+        assert!((savings_percent(text, text) - 0.0).abs() < f64::EPSILON);
     }
 }

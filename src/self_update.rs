@@ -320,7 +320,12 @@ mod tests {
         if let Some(n) = name {
             assert!(n.starts_with("hyphae-"));
             assert!(n.contains('-'));
-            assert!(n.ends_with(".tar.gz") || n.ends_with(".zip"));
+            assert!(
+                n.ends_with(".tar.gz")
+                    || std::path::Path::new(&n)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+            );
         }
     }
 

@@ -574,13 +574,13 @@ sys.stdin.read()
     #[test]
     fn test_timeout_kills_hung_subprocess_line_delimited() {
         // Create a mock server that never responds (blocks forever)
-        let script = r#"
+        let script = r"
 import sys
 # Read request
 line = sys.stdin.readline()
 # Don't write response - just block forever
 sys.stdin.read()
-"#;
+";
         let child = Command::new("python3")
             .args(["-c", script])
             .stdin(Stdio::piped())
@@ -623,7 +623,7 @@ sys.stdin.read()
     #[test]
     fn test_timeout_kills_hung_subprocess_content_length() {
         // Create a mock server that never responds (blocks forever)
-        let script = r#"
+        let script = r"
 import sys
 # Read request character by character until closing brace
 while True:
@@ -632,7 +632,7 @@ while True:
         break
 # Don't write response - just block forever
 sys.stdin.read()
-"#;
+";
         let child = Command::new("python3")
             .args(["-c", script])
             .stdin(Stdio::piped())

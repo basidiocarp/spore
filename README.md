@@ -2,11 +2,34 @@
 
 Shared IPC primitives for the [Basidiocarp](https://github.com/basidiocarp) ecosystem. Named after fungal spores — lightweight carriers of information between separate organisms.
 
-Spore provides three capabilities used across Mycelium, Hyphae, and Rhizome:
+Spore provides the shared primitives used across Mycelium, Hyphae, Rhizome, and Stipe:
 
 1. **Tool Discovery** — find sibling tools in PATH, cache results, detect versions
 2. **JSON-RPC 2.0** — encode/decode MCP protocol messages with Content-Length framing
 3. **Subprocess Communication** — spawn and talk to sibling MCP servers over stdio
+4. **Editor Primitives** — detect supported editors, resolve MCP config paths, and write MCP registrations
+
+Boundary note: Spore should stay focused on reusable editor and transport primitives. Ecosystem policy such as install profiles, tool inventory, doctor severity, release mapping, and multi-tool orchestration belongs in higher-level apps like `stipe`.
+
+### Detect editors and resolve their MCP metadata
+
+```rust
+use spore::editors::{detect_descriptors, Editor, EditorConfigFormat};
+
+let descriptors = detect_descriptors();
+for descriptor in descriptors {
+    println!(
+        "{} writes {:?} MCP config to {}",
+        descriptor.name,
+        descriptor.config_format,
+        descriptor.config_path.display()
+    );
+}
+
+let codex = Editor::CodexCli.descriptor()?;
+assert_eq!(codex.config_format, EditorConfigFormat::Toml);
+assert_eq!(codex.mcp_key, "mcp_servers");
+```
 
 ## Usage
 
