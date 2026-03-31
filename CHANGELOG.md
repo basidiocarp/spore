@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.6] - 2026-03-31
+
+### Added
+
+- **Complete ecosystem tool registry**: `Tool` and `discover_all()` now include
+  `cortina` and `canopy`, so downstream callers can rely on Spore for the full
+  first-party tool surface instead of mixing in ad hoc discovery.
+
 ## [0.4.5] - 2026-03-30
 
 ### Added

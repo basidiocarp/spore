@@ -4,6 +4,8 @@ use std::sync::OnceLock;
 static MYCELIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static HYPHAE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static RHIZOME_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static CORTINA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static CANOPY_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CAP_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 
 /// Discover a specific ecosystem tool in PATH.
@@ -14,6 +16,8 @@ pub fn discover(tool: Tool) -> Option<ToolInfo> {
         Tool::Mycelium => &MYCELIUM_CACHE,
         Tool::Hyphae => &HYPHAE_CACHE,
         Tool::Rhizome => &RHIZOME_CACHE,
+        Tool::Cortina => &CORTINA_CACHE,
+        Tool::Canopy => &CANOPY_CACHE,
         Tool::Cap => &CAP_CACHE,
     };
     cache.get_or_init(|| probe(tool)).clone()
