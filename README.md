@@ -11,6 +11,9 @@ Spore provides the shared primitives used across Mycelium, Hyphae, Rhizome, and 
 
 Boundary note: Spore should stay focused on reusable editor and transport primitives. Ecosystem policy such as install profiles, tool inventory, doctor severity, release mapping, and multi-tool orchestration belongs in higher-level apps like `stipe`.
 
+Protocol note: the canonical transport and envelope specification for ecosystem
+MCP traffic lives in [PROTOCOL.md](/Users/williamnewton/projects/claude-mycelium/spore/PROTOCOL.md).
+
 ### Detect editors and resolve their MCP metadata
 
 ```rust

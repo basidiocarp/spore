@@ -11,6 +11,6 @@ pub mod tokens;
 pub mod types;
 
 pub use discovery::{discover, discover_all};
-pub use error::{Result, SporeError};
+pub use error::{EcosystemError, Result, SporeError};
 pub use subprocess::{Framing, McpClient};
 pub use types::{EcosystemStatus, ProjectContext, Tool, ToolInfo};

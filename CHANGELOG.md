@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.5] - 2026-03-30
+
+### Added
+
+- **Shared ecosystem error envelope**: `error::EcosystemError` provides a
+  versioned, serializable cross-tool failure shape for ecosystem boundaries.
+- **Canonical protocol spec**: `PROTOCOL.md` now lives in `spore` as the shared
+  transport and envelope reference for ecosystem MCP traffic.
+
+### Changed
+
+- **README protocol guidance**: the `spore` README now points consumers at the
+  canonical protocol spec alongside the crate's shared primitives.
+
 ## [0.4.4] - 2026-03-29
 
 ### Added
