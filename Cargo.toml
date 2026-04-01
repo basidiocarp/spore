@@ -1,7 +1,8 @@
 [package]
 name = "spore"
-version = "0.4.6"
+version = "0.4.7"
 edition = "2024"
+rust-version = "1.85"
 authors = ["William Newton"]
 description = "Shared infrastructure for the Basidiocarp ecosystem — tool discovery, JSON-RPC, subprocess communication, config loading, self-update, and platform paths"
 license = "MIT"
