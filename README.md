@@ -1,15 +1,15 @@
 # Spore
 
-Shared IPC primitives for the [Basidiocarp](https://github.com/basidiocarp) ecosystem. Named after fungal spores — lightweight carriers of information between separate organisms.
+Shared IPC primitives for the [Basidiocarp](https://github.com/basidiocarp) ecosystem. Named after fungal spores—lightweight carriers of information between separate organisms.
 
 Spore provides the shared primitives used across Mycelium, Hyphae, Rhizome, and Stipe:
 
-1. **Tool Discovery** — find sibling tools in PATH, cache results, detect versions
-2. **JSON-RPC 2.0** — encode/decode MCP protocol messages with Content-Length framing
-3. **Subprocess Communication** — spawn and talk to sibling MCP servers over stdio
-4. **Editor Primitives** — detect supported editors, resolve MCP config paths, and write MCP registrations
+1. Tool discovery—find sibling tools in PATH, cache results, detect versions
+2. JSON-RPC 2.0—encode/decode MCP protocol messages with Content-Length framing
+3. Subprocess communication—spawn and talk to sibling MCP servers over stdio
+4. Editor primitives—detect supported editors, resolve MCP config paths, and write MCP registrations
 
-Boundary note: Spore should stay focused on reusable editor and transport primitives. Ecosystem policy such as install profiles, tool inventory, doctor severity, release mapping, and multi-tool orchestration belongs in higher-level apps like `stipe`.
+Spore should stay focused on reusable editor and transport primitives. Ecosystem policy such as install profiles, tool inventory, doctor severity, release mapping, and multi-tool orchestration belongs in higher-level apps like `stipe`.
 
 Protocol note: the canonical transport and envelope specification for ecosystem
 MCP traffic lives in [PROTOCOL.md](/Users/williamnewton/projects/claude-mycelium/spore/PROTOCOL.md).
