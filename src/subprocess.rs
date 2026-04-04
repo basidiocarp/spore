@@ -110,7 +110,9 @@ impl McpClient {
             Framing::LineDelimited => serde_json::to_string(&request).map_err(|e| {
                 SporeError::Other(format!("Failed to encode JSON-RPC request: {e}"))
             })?,
-            Framing::ContentLength => jsonrpc::encode(&request),
+            Framing::ContentLength => serde_json::to_string(&request).map_err(|e| {
+                SporeError::Other(format!("Failed to encode JSON-RPC request: {e}"))
+            })?,
         };
         let _child = self
             .child
@@ -416,11 +418,27 @@ sys.stdin.read()
     fn mock_server_content_length() -> McpClient {
         let script = r#"
 import sys
-# Read until we see closing brace (end of JSON body)
+content_length = None
 while True:
-    ch = sys.stdin.read(1)
-    if not ch or ch == '}':
+    line = sys.stdin.buffer.readline()
+    if not line:
+        sys.exit(1)
+    if line == b"\r\n":
         break
+    if line.lower().startswith(b"content-length:"):
+        content_length = int(line.split(b":", 1)[1].strip())
+
+if content_length is None:
+    sys.exit(2)
+
+body = sys.stdin.buffer.read(content_length)
+if len(body) != content_length:
+    sys.exit(3)
+
+decoded = body.decode("utf-8")
+if not decoded.lstrip().startswith("{"):
+    sys.exit(4)
+
 # Write response with Content-Length headers
 resp = '{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}'
 sys.stdout.write(f'Content-Length: {len(resp)}\r\n\r\n{resp}')
@@ -625,11 +643,20 @@ sys.stdin.read()
         // Create a mock server that never responds (blocks forever)
         let script = r"
 import sys
-# Read request character by character until closing brace
+content_length = None
 while True:
-    ch = sys.stdin.read(1)
-    if not ch or ch == '}':
+    line = sys.stdin.buffer.readline()
+    if not line:
+        sys.exit(1)
+    if line == b'\r\n':
         break
+    if line.lower().startswith(b'content-length:'):
+        content_length = int(line.split(b':', 1)[1].strip())
+if content_length is None:
+    sys.exit(2)
+body = sys.stdin.buffer.read(content_length)
+if len(body) != content_length:
+    sys.exit(3)
 # Don't write response - just block forever
 sys.stdin.read()
 ";
@@ -657,7 +684,7 @@ sys.stdin.read()
                 "arguments": {},
             }),
         );
-        let encoded = jsonrpc::encode(&request);
+        let encoded = serde_json::to_string(&request).expect("request serialization should work");
         client.send_request(&encoded).expect("send_request failed");
 
         // recv_response should timeout and kill the child
