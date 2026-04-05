@@ -87,6 +87,25 @@ mod tests {
     }
 
     #[test]
+    fn test_encode_frames_request_once() {
+        let req = Request::new("tools/list", Value::Null);
+        let encoded = encode(&req);
+        let (header, body) = encoded
+            .split_once("\r\n\r\n")
+            .expect("missing Content-Length separator");
+
+        let declared_length = header
+            .strip_prefix("Content-Length: ")
+            .expect("missing Content-Length header")
+            .parse::<usize>()
+            .expect("invalid Content-Length value");
+
+        assert_eq!(declared_length, body.len());
+        assert!(body.starts_with('{'));
+        assert!(!body.starts_with("Content-Length:"));
+    }
+
+    #[test]
     fn test_decode_response() {
         let raw = r#"Content-Length: 52
 

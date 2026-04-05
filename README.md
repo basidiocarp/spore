@@ -1,94 +1,100 @@
 # Spore
 
-Shared IPC primitives for the [Basidiocarp](https://github.com/basidiocarp) ecosystem. Named after fungal spores—lightweight carriers of information between separate organisms.
+Shared IPC and editor primitives for the Basidiocarp ecosystem. Provides the
+reusable transport, discovery, and config-writing pieces that higher-level
+tools build on.
 
-Spore provides the shared primitives used across Mycelium, Hyphae, Rhizome, and Stipe:
+Named after fungal spores, lightweight carriers that move information and
+propagation across separate organisms.
 
-1. Tool discovery—find sibling tools in PATH, cache results, detect versions
-2. JSON-RPC 2.0—encode/decode MCP protocol messages with Content-Length framing
-3. Subprocess communication—spawn and talk to sibling MCP servers over stdio
-4. Editor primitives—detect supported editors, resolve MCP config paths, and write MCP registrations
+Part of the [Basidiocarp ecosystem](https://github.com/basidiocarp).
 
-Spore should stay focused on reusable editor and transport primitives. Ecosystem policy such as install profiles, tool inventory, doctor severity, release mapping, and multi-tool orchestration belongs in higher-level apps like `stipe`.
+---
 
-Protocol note: the canonical transport and envelope specification for ecosystem
-MCP traffic lives in [PROTOCOL.md](/Users/williamnewton/projects/claude-mycelium/spore/PROTOCOL.md).
+## The Problem
 
-### Detect editors and resolve their MCP metadata
+Every ecosystem tool needs the same low-level plumbing: discover sibling
+binaries, speak JSON-RPC over stdio, detect editor config paths, and register
+MCP servers. Rebuilding that logic in every binary creates drift.
 
-```rust
-use spore::editors::{detect_descriptors, Editor, EditorConfigFormat};
+## The Solution
 
-let descriptors = detect_descriptors();
-for descriptor in descriptors {
-    println!(
-        "{} writes {:?} MCP config to {}",
-        descriptor.name,
-        descriptor.config_format,
-        descriptor.config_path.display()
-    );
-}
+Spore is the shared crate for those primitives. It handles discovery, transport,
+subprocess communication, and editor metadata once so the higher-level tools do
+not each need their own half-compatible version.
 
-let codex = Editor::CodexCli.descriptor()?;
-assert_eq!(codex.config_format, EditorConfigFormat::Toml);
-assert_eq!(codex.mcp_key, "mcp_servers");
-```
+---
 
-## Usage
+## The Ecosystem
+
+| Tool | Purpose |
+|------|---------|
+| **[spore](https://github.com/basidiocarp/spore)** | Shared transport and editor primitives |
+| **[hyphae](https://github.com/basidiocarp/hyphae)** | Persistent agent memory |
+| **[mycelium](https://github.com/basidiocarp/mycelium)** | Token-optimized command output |
+| **[rhizome](https://github.com/basidiocarp/rhizome)** | Code intelligence via tree-sitter and LSP |
+| **[stipe](https://github.com/basidiocarp/stipe)** | Ecosystem installer and manager |
+
+> **Boundary:** `spore` owns reusable transport and editor primitives.
+> `stipe` owns ecosystem policy such as install profiles, tool inventory, and
+> doctor severity.
+
+---
+
+## Quick Start
 
 ```toml
 [dependencies]
 spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.1.0" }
 ```
 
-### Discover sibling tools
-
 ```rust
-use spore::{discover, Tool};
-
-if let Some(info) = discover(Tool::Hyphae) {
-    println!("Found {} v{} at {}", info.tool, info.version, info.binary_path.display());
-}
-
-let all = spore::discover_all();
-println!("{} ecosystem tools found", all.len());
+use spore::{discover, McpClient, Tool};
 ```
 
-### Spawn an MCP client
+---
 
-```rust
-use spore::{McpClient, Tool};
-use serde_json::json;
+## How It Works
 
-let mut client = McpClient::spawn(Tool::Hyphae, &["serve"])?;
-
-let result = client.call_tool("hyphae_memory_store", json!({
-    "content": "Auth module refactored to use JWT",
-    "topic": "auth"
-}))?;
-
-println!("Stored: {}", result);
+```text
+App crate               Spore                         Ecosystem tool
+─────────               ─────                         ──────────────
+discover tool     ─►    tool registry          ─►    PATH lookup
+spawn client      ─►    MCP client             ─►    stdio server
+write config      ─►    editor descriptors     ─►    host config file
 ```
 
-### JSON-RPC encoding
+1. Discover tools: locate sibling binaries and cache version information.
+2. Speak MCP transport: encode and decode JSON-RPC with Content-Length framing.
+3. Spawn clients: talk to sibling MCP servers over stdio.
+4. Resolve editors: detect supported editors and their config file shapes.
 
-```rust
-use spore::jsonrpc::{Request, encode, decode};
+---
 
-let req = Request::new("tools/call", json!({"name": "get_symbols"}));
-let wire = encode(&req);  // Content-Length: N\r\n\r\n{json}
+## Key Features
 
-let response = decode(&raw_response)?;
+- Tool discovery: finds sibling tools in PATH and reports version metadata.
+- JSON-RPC transport: provides the shared MCP wire implementation.
+- Subprocess clients: spawn and communicate with sibling servers.
+- Editor primitives: resolve config paths and format details for supported hosts.
+
+---
+
+## Architecture
+
+```text
+spore/
+├── src/        shared discovery, JSON-RPC, MCP, and editor modules
+├── tests/      integration coverage
+└── docs/       protocol and internal notes
 ```
 
-## Ecosystem
+---
 
-| Tool | Repo | Purpose |
-|------|------|---------|
-| [Mycelium](https://github.com/basidiocarp/mycelium) | CLI proxy | Token-optimized command output |
-| [Hyphae](https://github.com/basidiocarp/hyphae) | Memory system | Persistent agent memory |
-| [Rhizome](https://github.com/basidiocarp/rhizome) | Code intelligence | Symbol extraction and navigation |
-| [Cap](https://github.com/basidiocarp/cap) | Dashboard | Web UI for the ecosystem |
+## Documentation
+
+- [PROTOCOL.md](PROTOCOL.md): canonical transport and envelope specification
+- [docs/INTERNALS.md](docs/INTERNALS.md): implementation notes and module boundaries
 
 ## Development
 

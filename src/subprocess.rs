@@ -110,9 +110,7 @@ impl McpClient {
             Framing::LineDelimited => serde_json::to_string(&request).map_err(|e| {
                 SporeError::Other(format!("Failed to encode JSON-RPC request: {e}"))
             })?,
-            Framing::ContentLength => serde_json::to_string(&request).map_err(|e| {
-                SporeError::Other(format!("Failed to encode JSON-RPC request: {e}"))
-            })?,
+            Framing::ContentLength => jsonrpc::encode(&request),
         };
         let _child = self
             .child
@@ -163,11 +161,7 @@ impl McpClient {
                 stdin.write_all(b"\n").map_err(SporeError::SpawnFailed)?;
             }
             Framing::ContentLength => {
-                // Write as LSP-style: Content-Length header + blank line + body
-                let header = format!("Content-Length: {}\r\n\r\n", encoded.len());
-                stdin
-                    .write_all(header.as_bytes())
-                    .map_err(SporeError::SpawnFailed)?;
+                // Content-Length framing is already part of `encoded`.
                 stdin
                     .write_all(encoded.as_bytes())
                     .map_err(SporeError::SpawnFailed)?;
@@ -436,6 +430,9 @@ if len(body) != content_length:
     sys.exit(3)
 
 decoded = body.decode("utf-8")
+# Reject nested Content-Length framing or any other non-JSON body.
+if decoded.lstrip().startswith("Content-Length:"):
+    sys.exit(4)
 if not decoded.lstrip().startswith("{"):
     sys.exit(4)
 
@@ -684,7 +681,7 @@ sys.stdin.read()
                 "arguments": {},
             }),
         );
-        let encoded = serde_json::to_string(&request).expect("request serialization should work");
+        let encoded = jsonrpc::encode(&request);
         client.send_request(&encoded).expect("send_request failed");
 
         // recv_response should timeout and kill the child
