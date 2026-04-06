@@ -6,6 +6,7 @@ static HYPHAE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static RHIZOME_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CORTINA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CANOPY_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static VOLVA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CAP_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 
 /// Discover a specific ecosystem tool in PATH.
@@ -18,6 +19,7 @@ pub fn discover(tool: Tool) -> Option<ToolInfo> {
         Tool::Rhizome => &RHIZOME_CACHE,
         Tool::Cortina => &CORTINA_CACHE,
         Tool::Canopy => &CANOPY_CACHE,
+        Tool::Volva => &VOLVA_CACHE,
         Tool::Cap => &CAP_CACHE,
     };
     cache.get_or_init(|| probe(tool)).clone()

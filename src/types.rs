@@ -11,6 +11,7 @@ pub enum Tool {
     Rhizome,
     Cortina,
     Canopy,
+    Volva,
     /// Cap is a web dashboard (Node.js, not Rust). Discovered via `cap` binary but
     /// may not be in PATH if run via `npm run dev:all` from a cloned repo.
     Cap,
@@ -25,6 +26,7 @@ impl Tool {
             Self::Rhizome => "rhizome",
             Self::Cortina => "cortina",
             Self::Canopy => "canopy",
+            Self::Volva => "volva",
             Self::Cap => "cap",
         }
     }
@@ -37,6 +39,7 @@ impl Tool {
             Self::Rhizome,
             Self::Cortina,
             Self::Canopy,
+            Self::Volva,
             Self::Cap,
         ]
     }
@@ -50,6 +53,7 @@ impl Tool {
             | Self::Rhizome
             | Self::Cortina
             | Self::Canopy
+            | Self::Volva
             | Self::Cap => "0.1.0",
         }
     }
@@ -261,5 +265,11 @@ mod tests {
         assert_eq!(ext_to_language("cpp"), Some("cpp"));
         assert_eq!(ext_to_language("rb"), Some("ruby"));
         assert_eq!(ext_to_language("txt"), None);
+    }
+
+    #[test]
+    fn test_tool_all_includes_volva() {
+        assert!(Tool::all().contains(&Tool::Volva));
+        assert_eq!(Tool::Volva.binary_name(), "volva");
     }
 }
