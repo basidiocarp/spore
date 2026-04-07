@@ -19,6 +19,7 @@ use std::time::Duration;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
 pub enum Framing {
     /// ─────────────────────────────────────────────────────────────────────────
     /// `LineDelimited`

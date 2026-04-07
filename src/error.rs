@@ -12,6 +12,7 @@ use thiserror::Error;
 /// ─────────────────────────────────────────────────────────────────────────
 /// Comprehensive error type for all spore operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SporeError {
     /// Tool not found in PATH.
     #[error("tool not found in PATH: {0}")]

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// Supported editors that can host MCP servers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub enum Editor {
     ClaudeCode,
     Cursor,
