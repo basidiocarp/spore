@@ -76,7 +76,7 @@ pub struct ToolInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcosystemStatus {
     pub tools: Vec<ToolInfo>,
-    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub timestamp: crate::datetime::DateTime<crate::datetime::Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

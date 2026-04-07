@@ -4,7 +4,7 @@ Canonical protocol specification for cross-tool MCP communication in the
 Basidiocarp ecosystem.
 
 This document is owned by `spore` because `spore` provides the shared JSON-RPC
-and subprocess transport primitives used by the Rust tools. Root `contracts/`
+and subprocess transport primitives used by the Rust tools. Root `septa/`
 schemas define payload shapes for individual cross-tool boundaries; this file
 defines the transport and envelope rules those payloads ride on.
 
@@ -21,10 +21,10 @@ This specification covers:
 - shared identity fields
 
 This specification does not replace the payload schemas in
-`/Users/williamnewton/projects/claude-mycelium/contracts/`. Use both:
+`/Users/williamnewton/projects/claude-mycelium/septa/`. Use both:
 
 1. `spore/PROTOCOL.md` for transport and envelope rules
-2. `contracts/*.schema.json` for boundary-specific payload shapes
+2. `septa/*.schema.json` for boundary-specific payload shapes
 
 ## Transport
 
