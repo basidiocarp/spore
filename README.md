@@ -45,7 +45,7 @@ not each need their own half-compatible version.
 
 ```toml
 [dependencies]
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.8" }
+spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.9" }
 ```
 
 ```rust
@@ -56,6 +56,15 @@ use spore::{discover, McpClient, Tool};
 use tracing::Level;
 
 spore::logging::init_app("hyphae", Level::WARN);
+```
+
+```rust
+use tracing::Level;
+
+let config = spore::logging::LoggingConfig::for_app("hyphae", Level::WARN);
+let context = config.span_context().with_request_id("req-42");
+let _root = spore::logging::root_span(&context).entered();
+let _request = spore::logging::request_span("mcp_call", &context).entered();
 ```
 
 ---
@@ -113,13 +122,18 @@ ecosystem tools.
   initialization paths where panics are not acceptable.
 - `LoggingConfig` provides a small policy surface for output format, output
   target, and span event verbosity.
+- `LoggingConfig::span_context()` builds the standard service/session context
+  for downstream spans.
 - `stderr` remains the default output target for MCP-aware tools so stdout
   transport framing stays clean.
+- `root_span`, `request_span`, `tool_span`, `workflow_span`, and
+  `subprocess_span` provide one repo-consistent field convention for tracing.
 
 For failure localization, downstream repos should create spans around request,
 subprocess, session, and workflow boundaries instead of relying on free-form log
 messages alone. Good context fields include `service`, `tool`, `request_id`,
-`session_id`, `workspace_root`, and similar identifiers when available.
+`session_id`, and `workspace_root`. Use the helpers in `spore::logging` so the
+field names stay stable across repos instead of hand-rolling new conventions.
 
 ## Development
 

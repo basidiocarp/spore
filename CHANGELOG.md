@@ -4,10 +4,13 @@ All notable changes to Spore are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-04-08
+
 ### Added
 
 - **Shared logging contract**: `spore::logging` now exposes app-aware init
-  helpers, safe `try_init` variants, a typed logging config surface, and
+  helpers, safe `try_init` variants, a typed logging config surface,
+  standardized root/request/tool/workflow/subprocess span helpers, and
   documented tracing guidance for failure localization.
 
 ### Changed

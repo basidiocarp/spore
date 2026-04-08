@@ -4,9 +4,19 @@
 //! long-running ecosystem processes. Uses `tracing_subscriber` with env filter.
 
 use crate::{Result, SporeError};
+use std::fmt;
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::format::FmtSpan;
+
+pub const SERVICE_FIELD: &str = "service";
+pub const TOOL_FIELD: &str = "tool";
+pub const REQUEST_ID_FIELD: &str = "request_id";
+pub const SESSION_ID_FIELD: &str = "session_id";
+pub const WORKSPACE_ROOT_FIELD: &str = "workspace_root";
+pub const SPAN_KIND_FIELD: &str = "span_kind";
+pub const OPERATION_FIELD: &str = "operation";
+pub const COMMAND_FIELD: &str = "command";
 
 /// Output format for tracing events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +63,7 @@ pub struct LoggingConfig {
     pub default_level: Level,
     pub app_name: Option<String>,
     pub env_var: Option<String>,
+    pub session_id: Option<String>,
     pub format: LogFormat,
     pub output: LogOutput,
     pub span_events: SpanEvents,
@@ -66,6 +77,7 @@ impl LoggingConfig {
             default_level,
             app_name: None,
             env_var: None,
+            session_id: None,
             format: LogFormat::Compact,
             output: LogOutput::Stderr,
             span_events: SpanEvents::Off,
@@ -87,6 +99,12 @@ impl LoggingConfig {
     #[must_use]
     pub fn with_env_var(mut self, env_var: impl Into<String>) -> Self {
         self.env_var = Some(env_var.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
         self
     }
 
@@ -120,6 +138,22 @@ impl LoggingConfig {
             .clone()
             .or_else(|| self.app_name.as_deref().map(app_log_env_var))
     }
+
+    #[must_use]
+    pub fn span_context(&self) -> SpanContext {
+        let session_id = self
+            .session_id
+            .clone()
+            .or_else(crate::claude_session_id);
+
+        SpanContext {
+            service: self.app_name.clone(),
+            tool: None,
+            request_id: None,
+            session_id,
+            workspace_root: None,
+        }
+    }
 }
 
 /// Derive the conventional `<APP>_LOG` environment variable name.
@@ -136,6 +170,170 @@ pub fn app_log_env_var(app_name: &str) -> String {
         })
         .collect::<String>();
     format!("{normalized}_LOG")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpanKind {
+    Root,
+    Request,
+    Tool,
+    Workflow,
+    Subprocess,
+}
+
+impl SpanKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Root => "root",
+            Self::Request => "request",
+            Self::Tool => "tool",
+            Self::Workflow => "workflow",
+            Self::Subprocess => "subprocess",
+        }
+    }
+}
+
+/// Standardized tracing context for ecosystem workflow spans.
+///
+/// Build this once per request or workflow and pass it to the helper span
+/// constructors in this module so field names stay consistent across repos.
+#[derive(Debug, Clone, Default)]
+pub struct SpanContext {
+    pub service: Option<String>,
+    pub tool: Option<String>,
+    pub request_id: Option<String>,
+    pub session_id: Option<String>,
+    pub workspace_root: Option<String>,
+}
+
+impl SpanContext {
+    #[must_use]
+    pub fn for_app(app_name: impl Into<String>) -> Self {
+        Self {
+            service: Some(app_name.into()),
+            tool: None,
+            request_id: None,
+            session_id: crate::claude_session_id(),
+            workspace_root: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_tool(mut self, tool: impl Into<String>) -> Self {
+        self.tool = Some(tool.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
+        self.request_id = Some(request_id.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_workspace_root(mut self, workspace_root: impl Into<String>) -> Self {
+        self.workspace_root = Some(workspace_root.into());
+        self
+    }
+}
+
+struct OptionalField<'a>(Option<&'a str>);
+
+impl fmt::Display for OptionalField<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(value) if !value.trim().is_empty() => f.write_str(value),
+            _ => f.write_str("-"),
+        }
+    }
+}
+
+fn optional_field(value: Option<&str>) -> tracing::field::DisplayValue<OptionalField<'_>> {
+    tracing::field::display(OptionalField(value))
+}
+
+/// Root span for injecting service and session metadata into a whole runtime.
+///
+/// Enter this once near startup if you want all nested spans and events to
+/// inherit a consistent service/session context.
+#[must_use]
+pub fn root_span(context: &SpanContext) -> tracing::Span {
+    tracing::info_span!(
+        "runtime",
+        span_kind = SpanKind::Root.as_str(),
+        service = optional_field(context.service.as_deref()),
+        tool = optional_field(context.tool.as_deref()),
+        request_id = optional_field(context.request_id.as_deref()),
+        session_id = optional_field(context.session_id.as_deref()),
+        workspace_root = optional_field(context.workspace_root.as_deref()),
+    )
+}
+
+/// Standard request span using the ecosystem field convention.
+#[must_use]
+pub fn request_span(operation: &str, context: &SpanContext) -> tracing::Span {
+    tracing::info_span!(
+        "request",
+        span_kind = SpanKind::Request.as_str(),
+        operation = operation,
+        service = optional_field(context.service.as_deref()),
+        tool = optional_field(context.tool.as_deref()),
+        request_id = optional_field(context.request_id.as_deref()),
+        session_id = optional_field(context.session_id.as_deref()),
+        workspace_root = optional_field(context.workspace_root.as_deref()),
+    )
+}
+
+/// Standard tool span using the ecosystem field convention.
+#[must_use]
+pub fn tool_span(operation: &str, context: &SpanContext) -> tracing::Span {
+    tracing::info_span!(
+        "tool",
+        span_kind = SpanKind::Tool.as_str(),
+        operation = operation,
+        service = optional_field(context.service.as_deref()),
+        tool = optional_field(context.tool.as_deref()),
+        request_id = optional_field(context.request_id.as_deref()),
+        session_id = optional_field(context.session_id.as_deref()),
+        workspace_root = optional_field(context.workspace_root.as_deref()),
+    )
+}
+
+/// Standard workflow span using the ecosystem field convention.
+#[must_use]
+pub fn workflow_span(operation: &str, context: &SpanContext) -> tracing::Span {
+    tracing::info_span!(
+        "workflow",
+        span_kind = SpanKind::Workflow.as_str(),
+        operation = operation,
+        service = optional_field(context.service.as_deref()),
+        tool = optional_field(context.tool.as_deref()),
+        request_id = optional_field(context.request_id.as_deref()),
+        session_id = optional_field(context.session_id.as_deref()),
+        workspace_root = optional_field(context.workspace_root.as_deref()),
+    )
+}
+
+/// Standard subprocess span using the ecosystem field convention.
+#[must_use]
+pub fn subprocess_span(command: &str, context: &SpanContext) -> tracing::Span {
+    tracing::info_span!(
+        "subprocess",
+        span_kind = SpanKind::Subprocess.as_str(),
+        command = command,
+        service = optional_field(context.service.as_deref()),
+        tool = optional_field(context.tool.as_deref()),
+        request_id = optional_field(context.request_id.as_deref()),
+        session_id = optional_field(context.session_id.as_deref()),
+        workspace_root = optional_field(context.workspace_root.as_deref()),
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +458,13 @@ fn resolve_filter_directive(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tracing::subscriber;
+    use tracing_subscriber::filter::LevelFilter;
+    use tracing_subscriber::layer::SubscriberExt;
+    fn with_info_subscriber<T>(f: impl FnOnce() -> T) -> T {
+        let subscriber = tracing_subscriber::registry().with(LevelFilter::INFO);
+        subscriber::with_default(subscriber, f)
+    }
 
     #[test]
     fn app_log_env_var_normalizes_names() {
@@ -301,5 +506,86 @@ mod tests {
             FmtSpan::NEW | FmtSpan::CLOSE
         );
         assert_eq!(SpanEvents::Full.into_fmt_span(), FmtSpan::FULL);
+    }
+
+    #[test]
+    fn logging_config_builds_standard_span_context() {
+        let context = LoggingConfig::for_app("hyphae", Level::WARN)
+            .with_session_id("session-123")
+            .span_context();
+
+        assert_eq!(context.service.as_deref(), Some("hyphae"));
+        assert_eq!(context.session_id.as_deref(), Some("session-123"));
+        assert_eq!(context.tool.as_deref(), None);
+        assert_eq!(context.request_id.as_deref(), None);
+        assert_eq!(context.workspace_root.as_deref(), None);
+    }
+
+    #[test]
+    fn root_span_uses_standard_metadata_fields() {
+        with_info_subscriber(|| {
+            let span = root_span(
+                &SpanContext::for_app("canopy")
+                    .with_session_id("session-123")
+                    .with_workspace_root("/tmp/project"),
+            );
+
+            assert!(span.has_field(SERVICE_FIELD));
+            assert!(span.has_field(SESSION_ID_FIELD));
+            assert!(span.has_field(WORKSPACE_ROOT_FIELD));
+            assert!(span.has_field(SPAN_KIND_FIELD));
+        });
+    }
+
+    #[test]
+    fn request_and_tool_spans_use_standard_metadata_fields() {
+        with_info_subscriber(|| {
+            let context = SpanContext::for_app("rhizome")
+                .with_tool("get_diagnostics")
+                .with_request_id("req-7")
+                .with_session_id("session-123")
+                .with_workspace_root("/tmp/rhizome");
+
+            let request = request_span("mcp_request", &context);
+            assert!(request.has_field(SERVICE_FIELD));
+            assert!(request.has_field(TOOL_FIELD));
+            assert!(request.has_field(REQUEST_ID_FIELD));
+            assert!(request.has_field(SESSION_ID_FIELD));
+            assert!(request.has_field(WORKSPACE_ROOT_FIELD));
+            assert!(request.has_field(OPERATION_FIELD));
+            assert!(request.has_field(SPAN_KIND_FIELD));
+
+            let tool = tool_span("get_diagnostics", &context);
+            assert!(tool.has_field(SERVICE_FIELD));
+            assert!(tool.has_field(TOOL_FIELD));
+            assert!(tool.has_field(REQUEST_ID_FIELD));
+            assert!(tool.has_field(SESSION_ID_FIELD));
+            assert!(tool.has_field(WORKSPACE_ROOT_FIELD));
+            assert!(tool.has_field(OPERATION_FIELD));
+            assert!(tool.has_field(SPAN_KIND_FIELD));
+        });
+    }
+
+    #[test]
+    fn workflow_and_subprocess_spans_use_standard_metadata_fields() {
+        with_info_subscriber(|| {
+            let context = SpanContext::for_app("mycelium")
+                .with_request_id("req-8")
+                .with_session_id("session-456");
+
+            let workflow = workflow_span("rewrite_pipeline", &context);
+            assert!(workflow.has_field(SERVICE_FIELD));
+            assert!(workflow.has_field(REQUEST_ID_FIELD));
+            assert!(workflow.has_field(SESSION_ID_FIELD));
+            assert!(workflow.has_field(OPERATION_FIELD));
+            assert!(workflow.has_field(SPAN_KIND_FIELD));
+
+            let subprocess = subprocess_span("cargo test", &context);
+            assert!(subprocess.has_field(SERVICE_FIELD));
+            assert!(subprocess.has_field(REQUEST_ID_FIELD));
+            assert!(subprocess.has_field(SESSION_ID_FIELD));
+            assert!(subprocess.has_field(COMMAND_FIELD));
+            assert!(subprocess.has_field(SPAN_KIND_FIELD));
+        });
     }
 }
