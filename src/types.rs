@@ -20,6 +20,20 @@ pub enum Tool {
 
 impl Tool {
     #[must_use]
+    pub fn from_binary_name(name: &str) -> Option<Self> {
+        match name {
+            "mycelium" => Some(Self::Mycelium),
+            "hyphae" => Some(Self::Hyphae),
+            "rhizome" => Some(Self::Rhizome),
+            "cortina" => Some(Self::Cortina),
+            "canopy" => Some(Self::Canopy),
+            "volva" => Some(Self::Volva),
+            "cap" => Some(Self::Cap),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub fn binary_name(self) -> &'static str {
         match self {
             Self::Mycelium => "mycelium",
@@ -272,5 +286,17 @@ mod tests {
     fn test_tool_all_includes_volva() {
         assert!(Tool::all().contains(&Tool::Volva));
         assert_eq!(Tool::Volva.binary_name(), "volva");
+    }
+
+    #[test]
+    fn test_tool_binary_name_roundtrip() {
+        for tool in Tool::all() {
+            assert_eq!(Tool::from_binary_name(tool.binary_name()), Some(*tool));
+        }
+    }
+
+    #[test]
+    fn test_tool_from_binary_name_unknown() {
+        assert_eq!(Tool::from_binary_name("stipe"), None);
     }
 }

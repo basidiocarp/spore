@@ -15,3 +15,14 @@ pub use discovery::{discover, discover_all};
 pub use error::{EcosystemError, Result, SporeError};
 pub use subprocess::{Framing, McpClient};
 pub use types::{EcosystemStatus, ProjectContext, Tool, ToolInfo};
+
+/// Return a normalized runtime session id from `CLAUDE_SESSION_ID`.
+///
+/// Empty and whitespace-only values are treated as missing.
+#[must_use]
+pub fn claude_session_id() -> Option<String> {
+    std::env::var("CLAUDE_SESSION_ID")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
