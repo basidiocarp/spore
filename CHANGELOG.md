@@ -4,6 +4,12 @@ All notable changes to Spore are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Shared logging contract**: `spore::logging` now exposes app-aware init
+  helpers, safe `try_init` variants, a typed logging config surface, and
+  documented tracing guidance for failure localization.
+
 ### Changed
 
 - **Docs cleanup**: The changelog and README were refreshed, and `INTERNALS.md`

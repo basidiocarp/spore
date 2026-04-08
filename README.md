@@ -45,11 +45,17 @@ not each need their own half-compatible version.
 
 ```toml
 [dependencies]
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.1.0" }
+spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.8" }
 ```
 
 ```rust
 use spore::{discover, McpClient, Tool};
+```
+
+```rust
+use tracing::Level;
+
+spore::logging::init_app("hyphae", Level::WARN);
 ```
 
 ---
@@ -77,6 +83,7 @@ write config      ─►    editor descriptors     ─►    host config file
 - JSON-RPC transport: provides the shared MCP wire implementation.
 - Subprocess clients: spawn and communicate with sibling servers.
 - Editor primitives: resolve config paths and format details for supported hosts.
+- Shared logging: app-aware env vars, safe `try_init` paths, and MCP-safe stderr defaults.
 
 ---
 
@@ -95,6 +102,24 @@ spore/
 
 - [PROTOCOL.md](PROTOCOL.md): canonical transport and envelope specification
 - [docs/INTERNALS.md](docs/INTERNALS.md): implementation notes and module boundaries
+
+## Logging Contract
+
+`spore::logging` is the shared logging and tracing setup surface for the Rust
+ecosystem tools.
+
+- `init_app("rhizome", ...)` derives `RHIZOME_LOG` consistently.
+- `try_init...` variants are available for tests, embedded startup, or repeated
+  initialization paths where panics are not acceptable.
+- `LoggingConfig` provides a small policy surface for output format, output
+  target, and span event verbosity.
+- `stderr` remains the default output target for MCP-aware tools so stdout
+  transport framing stays clean.
+
+For failure localization, downstream repos should create spans around request,
+subprocess, session, and workflow boundaries instead of relying on free-form log
+messages alone. Good context fields include `service`, `tool`, `request_id`,
+`session_id`, `workspace_root`, and similar identifiers when available.
 
 ## Development
 

@@ -42,6 +42,10 @@ pub enum SporeError {
     #[error("network error: {0}")]
     Network(String),
 
+    /// Logging initialization or configuration error.
+    #[error("logging error: {0}")]
+    Logging(String),
+
     /// JSON parsing or serialization error.
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
@@ -111,6 +115,7 @@ fn spore_error_code(error: &SporeError) -> &'static str {
         SporeError::Config(_) => "config_error",
         SporeError::Path(_) => "path_error",
         SporeError::Network(_) => "network_error",
+        SporeError::Logging(_) => "logging_error",
         SporeError::Json(_) => "json_error",
         SporeError::Toml(_) => "toml_error",
         SporeError::Other(_) => "other",
