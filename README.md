@@ -93,6 +93,7 @@ write config      ─►    editor descriptors     ─►    host config file
 - Subprocess clients: spawn and communicate with sibling servers.
 - Editor primitives: resolve config paths and format details for supported hosts.
 - Shared logging: app-aware env vars, safe `try_init` paths, and MCP-safe stderr defaults.
+- Default feature split: `logging` and `http` stay on for compatibility, but consumers can disable default features when they want a slimmer embed.
 
 ---
 
@@ -109,8 +110,9 @@ spore/
 
 ## Documentation
 
+- [docs/README.md](docs/README.md): docs index and reading order
 - [PROTOCOL.md](PROTOCOL.md): canonical transport and envelope specification
-- [docs/INTERNALS.md](docs/INTERNALS.md): implementation notes and module boundaries
+- [docs/internals.md](docs/internals.md): implementation notes and module boundaries
 
 ## Logging Contract
 
@@ -139,10 +141,21 @@ field names stay stable across repos instead of hand-rolling new conventions.
 
 ```bash
 cargo build
+cargo nextest run
 cargo test
 cargo clippy
 cargo fmt
 ```
+
+- Prefer `cargo nextest run` for the normal test loop.
+- Keep `criterion` out of scope here until a concrete hot path is named.
+- Because `spore` is a shared library crate, use targeted test timing or
+  downstream integration timing instead of a repo-local whole-command run.
+- If you are embedding `spore` in a slim consumer, disable default features and
+  opt back into `logging` and `http` only when you need those surfaces.
+- `spore` keeps `tracing-subscriber` and `ureq` on lean feature sets, and the
+  crate uses a `profile.dev` policy that matches the other Rust repos in this
+  workspace.
 
 ## License
 

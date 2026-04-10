@@ -4,8 +4,10 @@ pub mod discovery;
 pub mod editors;
 pub mod error;
 pub mod jsonrpc;
+#[cfg(feature = "logging")]
 pub mod logging;
 pub mod paths;
+#[cfg(feature = "http")]
 pub mod self_update;
 pub mod subprocess;
 pub mod tokens;

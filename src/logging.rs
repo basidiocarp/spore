@@ -141,10 +141,7 @@ impl LoggingConfig {
 
     #[must_use]
     pub fn span_context(&self) -> SpanContext {
-        let session_id = self
-            .session_id
-            .clone()
-            .or_else(crate::claude_session_id);
+        let session_id = self.session_id.clone().or_else(crate::claude_session_id);
 
         SpanContext {
             service: self.app_name.clone(),
@@ -431,7 +428,11 @@ pub fn try_init_with_config(config: LoggingConfig) -> Result<()> {
         }
     };
 
-    init_result.map_err(|error| SporeError::Logging(error.to_string()))
+    init_result.map_err(
+        |error: Box<dyn std::error::Error + Send + Sync + 'static>| {
+            SporeError::Logging(error.to_string())
+        },
+    )
 }
 
 fn resolve_filter(config: &LoggingConfig) -> EnvFilter {

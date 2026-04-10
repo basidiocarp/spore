@@ -21,7 +21,7 @@ This specification covers:
 - shared identity fields
 
 This specification does not replace the payload schemas in
-`/Users/williamnewton/projects/claude-mycelium/septa/`. Use both:
+`/Users/williamnewton/projects/basidiocarp/septa/`. Use both:
 
 1. `spore/PROTOCOL.md` for transport and envelope rules
 2. `septa/*.schema.json` for boundary-specific payload shapes

@@ -104,6 +104,7 @@ pub fn fetch_latest_release(
         .get(&api_url)
         .header("User-Agent", &format!("{binary_name}/{current_version}"))
         .header("Accept", "application/vnd.github+json")
+        .header("Accept-Encoding", "identity")
         .call()
         .map_err(|_| {
             SporeError::Network(
@@ -165,6 +166,7 @@ fn download_binary(binary_name: &str, current_version: &str, url: &str) -> Resul
     let response = agent
         .get(url)
         .header("User-Agent", &format!("{binary_name}/{current_version}"))
+        .header("Accept-Encoding", "identity")
         .call()
         .map_err(|_| SporeError::Network("Download failed".to_string()))?;
 

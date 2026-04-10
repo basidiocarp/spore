@@ -4,6 +4,21 @@ All notable changes to Spore are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-04-09
+
+### Changed
+
+- **Optional runtime surfaces**: `logging` and `http` are now optional Cargo
+  features that remain enabled by default for compatibility but can be dropped
+  by slimmer consumers.
+- **Docs structure**: The internals doc now lives under the lowercase docs
+  layout with a central `docs/README.md` and plan index.
+
+### Fixed
+
+- **Self-update requests**: Release download requests now force
+  `Accept-Encoding: identity` to keep archive handling predictable.
+
 ## [0.4.9] - 2026-04-08
 
 ### Added
@@ -15,8 +30,8 @@ All notable changes to Spore are documented in this file.
 
 ### Changed
 
-- **Docs cleanup**: The changelog and README were refreshed, and `INTERNALS.md`
-  moved under `docs/`.
+- **Docs cleanup**: The changelog and README were refreshed, and
+  `docs/internals.md` became the crate-internals reference.
 
 ## [0.4.6] - 2026-03-31
 
