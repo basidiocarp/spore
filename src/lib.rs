@@ -10,6 +10,8 @@ pub mod paths;
 #[cfg(feature = "http")]
 pub mod self_update;
 pub mod subprocess;
+#[cfg(feature = "otel")]
+pub mod telemetry;
 pub mod tokens;
 pub mod types;
 
