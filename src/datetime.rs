@@ -25,15 +25,28 @@ pub fn now_utc() -> DateTime<Utc> {
 }
 
 /// Convert an epoch-millisecond timestamp to an RFC3339 string.
+///
+/// Out-of-range timestamps are logged at `warn` level before falling back to
+/// the Unix epoch. Callers that need to distinguish invalid input should use
+/// [`DateTime::<Utc>::from_timestamp_millis`] directly.
+///
+/// # Panics
+///
+/// Panics if the Unix epoch (timestamp 0) cannot be represented as a
+/// `DateTime<Utc>`, which should never happen in practice.
 #[must_use]
 pub fn timestamp_to_rfc3339(ts: i64) -> String {
-    DateTime::<Utc>::from_timestamp_millis(ts)
-        .map(|dt| dt.to_rfc3339())
-        .unwrap_or_else(|| {
-            DateTime::<Utc>::from_timestamp_millis(0)
-                .expect("unix epoch should be valid")
-                .to_rfc3339()
-        })
+    if let Some(dt) = DateTime::<Utc>::from_timestamp_millis(ts) {
+        dt.to_rfc3339()
+    } else {
+        tracing::warn!(
+            ts,
+            "timestamp_to_rfc3339: out-of-range timestamp; falling back to Unix epoch"
+        );
+        DateTime::<Utc>::from_timestamp_millis(0)
+            .expect("unix epoch should be valid")
+            .to_rfc3339()
+    }
 }
 
 /// Parse an RFC3339 timestamp and return epoch milliseconds.

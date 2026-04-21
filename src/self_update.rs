@@ -12,6 +12,32 @@ use crate::error::{Result, SporeError};
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Validate that `binary_name` is a plain filename with no path separators
+/// or other dangerous characters that could escape the install directory.
+///
+/// # Errors
+///
+/// Returns an error if `binary_name` is empty, contains `/` or `\`, or equals `.` or `..`.
+fn validate_binary_name(binary_name: &str) -> Result<()> {
+    if binary_name.is_empty() {
+        return Err(SporeError::Other(
+            "binary_name must not be empty".to_string(),
+        ));
+    }
+    if binary_name.contains('/') || binary_name.contains('\\') {
+        return Err(SporeError::Other(format!(
+            "binary_name '{binary_name}' must not contain path separators"
+        )));
+    }
+    // Prevent relative traversal components such as "." or "..".
+    if binary_name == "." || binary_name == ".." {
+        return Err(SporeError::Other(format!(
+            "binary_name '{binary_name}' is not a valid filename"
+        )));
+    }
+    Ok(())
+}
+
 /// Check for updates and optionally download the latest release from GitHub.
 ///
 /// # Arguments
@@ -31,6 +57,8 @@ pub fn run(
     repo_url: &str,
     check_only: bool,
 ) -> Result<()> {
+    validate_binary_name(binary_name)?;
+
     println!("Current version: v{current_version}");
     print!("Checking for updates... ");
     std::io::stdout().flush().ok();

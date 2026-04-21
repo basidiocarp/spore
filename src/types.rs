@@ -16,6 +16,12 @@ pub enum Tool {
     /// Cap is a web dashboard (Node.js, not Rust). Discovered via `cap` binary but
     /// may not be in PATH if run via `npm run dev:all` from a cloned repo.
     Cap,
+    /// Stipe handles ecosystem install, init, update, and doctor flows.
+    Stipe,
+    /// Hymenium orchestrates workflow dispatch, phase gating, and retry/recovery.
+    Hymenium,
+    /// Annulus renders terminal operator surfaces such as the statusline.
+    Annulus,
 }
 
 impl Tool {
@@ -29,6 +35,9 @@ impl Tool {
             "canopy" => Some(Self::Canopy),
             "volva" => Some(Self::Volva),
             "cap" => Some(Self::Cap),
+            "stipe" => Some(Self::Stipe),
+            "hymenium" => Some(Self::Hymenium),
+            "annulus" => Some(Self::Annulus),
             _ => None,
         }
     }
@@ -43,6 +52,9 @@ impl Tool {
             Self::Canopy => "canopy",
             Self::Volva => "volva",
             Self::Cap => "cap",
+            Self::Stipe => "stipe",
+            Self::Hymenium => "hymenium",
+            Self::Annulus => "annulus",
         }
     }
 
@@ -56,6 +68,9 @@ impl Tool {
             Self::Canopy,
             Self::Volva,
             Self::Cap,
+            Self::Stipe,
+            Self::Hymenium,
+            Self::Annulus,
         ]
     }
 
@@ -69,7 +84,10 @@ impl Tool {
             | Self::Cortina
             | Self::Canopy
             | Self::Volva
-            | Self::Cap => "0.1.0",
+            | Self::Cap
+            | Self::Stipe
+            | Self::Hymenium
+            | Self::Annulus => "0.1.0",
         }
     }
 }
@@ -297,6 +315,16 @@ mod tests {
 
     #[test]
     fn test_tool_from_binary_name_unknown() {
-        assert_eq!(Tool::from_binary_name("stipe"), None);
+        assert_eq!(Tool::from_binary_name("__unknown_tool__"), None);
+    }
+
+    #[test]
+    fn test_tool_all_includes_stipe_hymenium_annulus() {
+        assert!(Tool::all().contains(&Tool::Stipe));
+        assert!(Tool::all().contains(&Tool::Hymenium));
+        assert!(Tool::all().contains(&Tool::Annulus));
+        assert_eq!(Tool::Stipe.binary_name(), "stipe");
+        assert_eq!(Tool::Hymenium.binary_name(), "hymenium");
+        assert_eq!(Tool::Annulus.binary_name(), "annulus");
     }
 }

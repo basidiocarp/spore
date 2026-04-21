@@ -301,6 +301,10 @@ fn read_line_delimited(
 /// Read Content Length
 /// ─────────────────────────────────────────────────────────────────────────
 /// Read Content-Length headers, skip blank line, then read body.
+/// Maximum `Content-Length` value allowed when reading an MCP response body.
+/// Requests advertising more will be rejected to prevent unbounded allocation.
+const MAX_CONTENT_LENGTH: usize = 100 * 1024 * 1024; // 100 MB
+
 fn read_content_length(
     reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
@@ -327,6 +331,12 @@ fn read_content_length(
         return Err(SporeError::Other(
             "No Content-Length in response".to_string(),
         ));
+    }
+
+    if content_length > MAX_CONTENT_LENGTH {
+        return Err(SporeError::Other(format!(
+            "Content-Length {content_length} exceeds maximum allowed size of {MAX_CONTENT_LENGTH} bytes"
+        )));
     }
 
     // Read body

@@ -309,36 +309,75 @@ fn register_mcp_servers_json(
     let path = config_path(editor)?;
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|_| {
-            crate::error::SporeError::Config(format!("creating directory {}", parent.display()))
+        std::fs::create_dir_all(parent).map_err(|e| {
+            crate::error::SporeError::Config(format!(
+                "creating directory {}: {e}",
+                parent.display()
+            ))
         })?;
     }
 
-    let mut root: serde_json::Value = if path.exists() {
-        let content = std::fs::read_to_string(&path)
-            .map_err(|_| crate::error::SporeError::Config(format!("reading {}", path.display())))?;
-        if content.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&content).map_err(|_| {
-                crate::error::SporeError::Config(format!("parsing {}", path.display()))
-            })?
+    // Try-open the file directly; treat NotFound as "start fresh".
+    let mut root: serde_json::Value = match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            if content.trim().is_empty() {
+                serde_json::json!({})
+            } else {
+                serde_json::from_str(&content).map_err(|e| {
+                    crate::error::SporeError::Config(format!("parsing {}: {e}", path.display()))
+                })?
+            }
         }
-    } else {
-        serde_json::json!({})
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(e) => {
+            return Err(crate::error::SporeError::Config(format!(
+                "reading {}: {e}",
+                path.display()
+            )));
+        }
     };
 
-    // Backup existing file
-    if path.exists() {
+    // Atomic backup: write a temp file in the same directory then rename.
+    // Only attempt when the original already exists.
+    {
         let backup = path.with_extension("json.bak");
-        std::fs::copy(&path, &backup).map_err(|_| {
-            crate::error::SporeError::Config(format!("backing up {}", path.display()))
-        })?;
+        match std::fs::read(&path) {
+            Ok(original_bytes) => {
+                let tmp_backup = path.with_extension("json.bak.tmp");
+                std::fs::write(&tmp_backup, &original_bytes).map_err(|e| {
+                    crate::error::SporeError::Config(format!(
+                        "writing backup temp for {}: {e}",
+                        path.display()
+                    ))
+                })?;
+                std::fs::rename(&tmp_backup, &backup).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp_backup);
+                    crate::error::SporeError::Config(format!(
+                        "renaming backup for {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // No original to back up.
+            }
+            Err(e) => {
+                return Err(crate::error::SporeError::Config(format!(
+                    "reading {} for backup: {e}",
+                    path.display()
+                )));
+            }
+        }
     }
 
     // Insert server entries.
     let key = editor.mcp_key();
-    let root_obj = root.as_object_mut().expect("root must be an object");
+    let root_obj =
+        root.as_object_mut()
+            .ok_or_else(|| crate::error::SporeError::Config(format!(
+                "config root in {} is not a JSON object",
+                path.display()
+            )))?;
     let server_map = root_obj.entry(key).or_insert_with(|| serde_json::json!({}));
 
     if let Some(map) = server_map.as_object_mut() {
@@ -350,14 +389,22 @@ fn register_mcp_servers_json(
         }
     }
 
+    // Atomic write: temp file then rename.
     let content = serde_json::to_string_pretty(&root)
-        .map_err(|_| crate::error::SporeError::Config("serializing config".to_string()))?;
-    std::fs::write(&path, content)
-        .map_err(|_| crate::error::SporeError::Config(format!("writing {}", path.display())))?;
+        .map_err(|e| crate::error::SporeError::Config(format!("serializing config: {e}")))?;
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &content).map_err(|e| {
+        crate::error::SporeError::Config(format!("writing temp {}: {e}", tmp_path.display()))
+    })?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        crate::error::SporeError::Config(format!("replacing {}: {e}", path.display()))
+    })?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn register_mcp_servers_toml(
     editor: Editor,
     servers: &[McpServer<'_>],
@@ -365,36 +412,79 @@ fn register_mcp_servers_toml(
     let path = config_path(editor)?;
 
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|_| {
-            crate::error::SporeError::Config(format!("creating directory {}", parent.display()))
+        std::fs::create_dir_all(parent).map_err(|e| {
+            crate::error::SporeError::Config(format!(
+                "creating directory {}: {e}",
+                parent.display()
+            ))
         })?;
     }
 
-    let mut root: toml::Value = if path.exists() {
-        let content = std::fs::read_to_string(&path)
-            .map_err(|_| crate::error::SporeError::Config(format!("reading {}", path.display())))?;
-        if content.trim().is_empty() {
-            toml::Value::Table(toml::map::Map::new())
-        } else {
-            content.parse().map_err(|_| {
-                crate::error::SporeError::Config(format!("parsing TOML {}", path.display()))
-            })?
+    // Try-open the file directly; treat NotFound as "start fresh".
+    let mut root: toml::Value = match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            if content.trim().is_empty() {
+                toml::Value::Table(toml::map::Map::new())
+            } else {
+                content.parse().map_err(|e| {
+                    crate::error::SporeError::Config(format!(
+                        "parsing TOML {}: {e}",
+                        path.display()
+                    ))
+                })?
+            }
         }
-    } else {
-        toml::Value::Table(toml::map::Map::new())
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            toml::Value::Table(toml::map::Map::new())
+        }
+        Err(e) => {
+            return Err(crate::error::SporeError::Config(format!(
+                "reading {}: {e}",
+                path.display()
+            )));
+        }
     };
 
-    // Backup existing file
-    if path.exists() {
+    // Atomic backup: write a temp file in the same directory then rename.
+    {
         let backup = path.with_extension("toml.bak");
-        std::fs::copy(&path, &backup).map_err(|_| {
-            crate::error::SporeError::Config(format!("backing up {}", path.display()))
-        })?;
+        match std::fs::read(&path) {
+            Ok(original_bytes) => {
+                let tmp_backup = path.with_extension("toml.bak.tmp");
+                std::fs::write(&tmp_backup, &original_bytes).map_err(|e| {
+                    crate::error::SporeError::Config(format!(
+                        "writing backup temp for {}: {e}",
+                        path.display()
+                    ))
+                })?;
+                std::fs::rename(&tmp_backup, &backup).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp_backup);
+                    crate::error::SporeError::Config(format!(
+                        "renaming backup for {}: {e}",
+                        path.display()
+                    ))
+                })?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // No original to back up.
+            }
+            Err(e) => {
+                return Err(crate::error::SporeError::Config(format!(
+                    "reading {} for backup: {e}",
+                    path.display()
+                )));
+            }
+        }
     }
 
     // Insert under [mcp_servers.<server_name>]
     let key = editor.mcp_key();
-    let root_table = root.as_table_mut().expect("root must be a TOML table");
+    let root_table =
+        root.as_table_mut()
+            .ok_or_else(|| crate::error::SporeError::Config(format!(
+                "config root in {} is not a TOML table",
+                path.display()
+            )))?;
     let server_map = root_table
         .entry(key)
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
@@ -419,10 +509,18 @@ fn register_mcp_servers_toml(
         }
     }
 
-    let content = toml::to_string_pretty(&root)
-        .map_err(|_| crate::error::SporeError::Config("serializing TOML config".to_string()))?;
-    std::fs::write(&path, content)
-        .map_err(|_| crate::error::SporeError::Config(format!("writing {}", path.display())))?;
+    // Atomic write: temp file then rename.
+    let content = toml::to_string_pretty(&root).map_err(|e| {
+        crate::error::SporeError::Config(format!("serializing TOML config: {e}"))
+    })?;
+    let tmp_path = path.with_extension("toml.tmp");
+    std::fs::write(&tmp_path, &content).map_err(|e| {
+        crate::error::SporeError::Config(format!("writing temp {}: {e}", tmp_path.display()))
+    })?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp_path);
+        crate::error::SporeError::Config(format!("replacing {}: {e}", path.display()))
+    })?;
 
     Ok(())
 }

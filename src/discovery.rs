@@ -8,9 +8,17 @@ static CORTINA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CANOPY_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static VOLVA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static CAP_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static STIPE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static HYMENIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+static ANNULUS_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 
 /// Discover a specific ecosystem tool in PATH.
 /// Results are cached for the lifetime of the process.
+///
+/// Note: the cache is process-global via [`OnceLock`]. In tests that need
+/// reproducible discovery results, set up the PATH before the test runs or
+/// use a fresh process. The `#[cfg(test)]` helper `clear_cache_for_test` is
+/// available to reset a specific entry when tests run sequentially.
 #[must_use]
 pub fn discover(tool: Tool) -> Option<ToolInfo> {
     let cache = match tool {
@@ -21,8 +29,21 @@ pub fn discover(tool: Tool) -> Option<ToolInfo> {
         Tool::Canopy => &CANOPY_CACHE,
         Tool::Volva => &VOLVA_CACHE,
         Tool::Cap => &CAP_CACHE,
+        Tool::Stipe => &STIPE_CACHE,
+        Tool::Hymenium => &HYMENIUM_CACHE,
+        Tool::Annulus => &ANNULUS_CACHE,
     };
     cache.get_or_init(|| probe(tool)).clone()
+}
+
+/// Probe the given tool without consulting the cache.
+///
+/// Useful in tests that need a fresh check against the current PATH. Note that
+/// calling [`discover`] after this will still return the already-cached value;
+/// use this function directly if you need an uncached result.
+#[cfg(test)]
+pub fn probe_uncached(tool: Tool) -> Option<ToolInfo> {
+    probe(tool)
 }
 
 /// Discover all ecosystem tools in PATH.

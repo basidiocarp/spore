@@ -44,12 +44,30 @@ pub fn config_path(app_name: &str) -> PathBuf {
 /// Priority:
 /// 1. `$<env_var>` environment variable (if set)
 /// 2. Platform-specific config dir: `<config_dir>/<app_name>/config.toml`
+///
+/// Tilde (`~`) at the start of the env-var value is expanded to the home
+/// directory, matching the expansion applied to the config-file path.
 #[must_use]
 pub fn config_path_with_env(app_name: &str, env_var: &str) -> PathBuf {
     if let Ok(p) = std::env::var(env_var) {
-        return PathBuf::from(p);
+        return expand_tilde(p);
     }
     config_path(app_name)
+}
+
+/// Expand a leading `~/` or bare `~` in a path string to the home directory.
+///
+/// If the home directory cannot be determined the path is returned unchanged.
+fn expand_tilde(p: String) -> PathBuf {
+    if p == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
+    }
+    if let Some(rest) = p.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest);
+        }
+    }
+    PathBuf::from(p)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
