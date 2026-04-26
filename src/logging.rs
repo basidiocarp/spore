@@ -350,6 +350,11 @@ pub fn subprocess_span(command: &str, context: &SpanContext) -> tracing::Span {
 /// // In main.rs:
 /// spore::logging::init(tracing::Level::WARN);
 /// ```
+///
+/// # Panics
+///
+/// Panics if tracing subscriber initialization fails or if the subscriber
+/// was already initialized in this process.
 pub fn init(default_level: Level) {
     try_init(default_level).expect("failed to initialize tracing subscriber");
 }
@@ -358,6 +363,11 @@ pub fn init(default_level: Level) {
 ///
 /// Use this in libraries, tests, and repeated startup paths where a double init
 /// should return an error instead of panicking the process.
+///
+/// # Errors
+///
+/// Returns an error if tracing subscriber initialization fails or if the
+/// subscriber was already initialized in this process.
 pub fn try_init(default_level: Level) -> Result<()> {
     try_init_with_config(LoggingConfig::new(default_level))
 }
@@ -366,11 +376,21 @@ pub fn try_init(default_level: Level) -> Result<()> {
 ///
 /// `app_name` is converted to `<APP>_LOG`, with non-alphanumeric characters
 /// replaced by underscores. The derived env var is checked before `RUST_LOG`.
+///
+/// # Panics
+///
+/// Panics if tracing subscriber initialization fails or if the subscriber
+/// was already initialized in this process.
 pub fn init_app(app_name: impl Into<String>, default_level: Level) {
     try_init_app(app_name, default_level).expect("failed to initialize tracing subscriber");
 }
 
 /// Try to initialize tracing with an app-aware env var.
+///
+/// # Errors
+///
+/// Returns an error if tracing subscriber initialization fails or if the
+/// subscriber was already initialized in this process.
 pub fn try_init_app(app_name: impl Into<String>, default_level: Level) -> Result<()> {
     try_init_with_config(LoggingConfig::for_app(app_name, default_level))
 }
@@ -385,21 +405,45 @@ pub fn try_init_app(app_name: impl Into<String>, default_level: Level) -> Result
 /// // Reads HYPHAE_LOG, then RUST_LOG, then defaults to WARN
 /// spore::logging::init_with_env("HYPHAE_LOG", tracing::Level::WARN);
 /// ```
+///
+/// # Panics
+///
+/// Panics if tracing subscriber initialization fails or if the subscriber
+/// was already initialized in this process.
 pub fn init_with_env(env_var: &str, default_level: Level) {
     try_init_with_env(env_var, default_level).expect("failed to initialize tracing subscriber");
 }
 
 /// Try to initialize tracing with a custom env variable name.
+///
+/// # Errors
+///
+/// Returns an error if tracing subscriber initialization fails or if the
+/// subscriber was already initialized in this process.
 pub fn try_init_with_env(env_var: &str, default_level: Level) -> Result<()> {
     try_init_with_config(LoggingConfig::new(default_level).with_env_var(env_var))
 }
 
 /// Initialize tracing with a fully explicit config surface.
+///
+/// # Panics
+///
+/// Panics if tracing subscriber initialization fails or if the subscriber
+/// was already initialized in this process.
 pub fn init_with_config(config: LoggingConfig) {
     try_init_with_config(config).expect("failed to initialize tracing subscriber");
 }
 
 /// Try to initialize tracing with a fully explicit config surface.
+///
+/// # Errors
+///
+/// Returns an error if tracing subscriber initialization fails or if the
+/// subscriber was already initialized in this process.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "ergonomic API: callers often pass temporaries"
+)]
 pub fn try_init_with_config(config: LoggingConfig) -> Result<()> {
     let filter = resolve_filter(&config);
     let builder = tracing_subscriber::fmt()
@@ -452,8 +496,10 @@ fn resolve_filter_directive(
     app_env_value
         .filter(|value| !value.trim().is_empty())
         .or(rust_log_value.filter(|value| !value.trim().is_empty()))
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| default_level.to_string().to_ascii_lowercase())
+        .map_or_else(
+            || default_level.to_string().to_ascii_lowercase(),
+            std::borrow::ToOwned::to_owned,
+        )
 }
 
 #[cfg(test)]

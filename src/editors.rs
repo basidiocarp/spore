@@ -372,12 +372,12 @@ fn register_mcp_servers_json(
 
     // Insert server entries.
     let key = editor.mcp_key();
-    let root_obj =
-        root.as_object_mut()
-            .ok_or_else(|| crate::error::SporeError::Config(format!(
-                "config root in {} is not a JSON object",
-                path.display()
-            )))?;
+    let root_obj = root.as_object_mut().ok_or_else(|| {
+        crate::error::SporeError::Config(format!(
+            "config root in {} is not a JSON object",
+            path.display()
+        ))
+    })?;
     let server_map = root_obj.entry(key).or_insert_with(|| serde_json::json!({}));
 
     if let Some(map) = server_map.as_object_mut() {
@@ -479,12 +479,12 @@ fn register_mcp_servers_toml(
 
     // Insert under [mcp_servers.<server_name>]
     let key = editor.mcp_key();
-    let root_table =
-        root.as_table_mut()
-            .ok_or_else(|| crate::error::SporeError::Config(format!(
-                "config root in {} is not a TOML table",
-                path.display()
-            )))?;
+    let root_table = root.as_table_mut().ok_or_else(|| {
+        crate::error::SporeError::Config(format!(
+            "config root in {} is not a TOML table",
+            path.display()
+        ))
+    })?;
     let server_map = root_table
         .entry(key)
         .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
@@ -510,9 +510,8 @@ fn register_mcp_servers_toml(
     }
 
     // Atomic write: temp file then rename.
-    let content = toml::to_string_pretty(&root).map_err(|e| {
-        crate::error::SporeError::Config(format!("serializing TOML config: {e}"))
-    })?;
+    let content = toml::to_string_pretty(&root)
+        .map_err(|e| crate::error::SporeError::Config(format!("serializing TOML config: {e}")))?;
     let tmp_path = path.with_extension("toml.tmp");
     std::fs::write(&tmp_path, &content).map_err(|e| {
         crate::error::SporeError::Config(format!("writing temp {}: {e}", tmp_path.display()))

@@ -220,6 +220,7 @@ impl McpClient {
             // channel (tx dropped) and exits. No thread leak occurs in practice.
             if let Some(mut child) = self.child.take() {
                 let _ = child.kill();
+                let _ = child.wait();
             }
             Err(SporeError::Timeout(timeout))
         }
@@ -241,6 +242,7 @@ impl McpClient {
         // Kill old process if it exists
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
+            let _ = child.wait();
         }
 
         let info =
@@ -263,6 +265,7 @@ impl Drop for McpClient {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
+            let _ = child.wait();
         }
     }
 }

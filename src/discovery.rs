@@ -1,5 +1,7 @@
 use crate::types::{Tool, ToolInfo};
 use std::sync::OnceLock;
+use std::thread;
+use std::time::Duration;
 
 static MYCELIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
 static HYPHAE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
@@ -42,6 +44,7 @@ pub fn discover(tool: Tool) -> Option<ToolInfo> {
 /// calling [`discover`] after this will still return the already-cached value;
 /// use this function directly if you need an uncached result.
 #[cfg(test)]
+#[must_use]
 pub fn probe_uncached(tool: Tool) -> Option<ToolInfo> {
     probe(tool)
 }
@@ -55,10 +58,21 @@ pub fn discover_all() -> Vec<ToolInfo> {
 fn probe(tool: Tool) -> Option<ToolInfo> {
     let binary_path = which::which(tool.binary_name()).ok()?;
 
-    let output = std::process::Command::new(&binary_path)
-        .arg("--version")
-        .output()
-        .ok()?;
+    // Spawn the version probe in a separate thread with a 5-second timeout
+    // to prevent hangs if a tool's --version command is stuck.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let binary_path_clone = binary_path.clone();
+
+    thread::spawn(move || {
+        let output = std::process::Command::new(&binary_path_clone)
+            .arg("--version")
+            .output()
+            .ok();
+        let _ = tx.send(output);
+    });
+
+    // Wait up to 5 seconds for the thread to produce a result.
+    let output = rx.recv_timeout(Duration::from_secs(5)).ok()??;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let version = parse_version(&stdout).unwrap_or_default();

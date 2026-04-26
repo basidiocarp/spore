@@ -50,11 +50,19 @@ pub fn timestamp_to_rfc3339(ts: i64) -> String {
 }
 
 /// Parse an RFC3339 timestamp and return epoch milliseconds.
+///
+/// # Errors
+///
+/// Returns an error if the input string is not a valid RFC3339 timestamp.
 pub fn rfc3339_to_timestamp(s: &str) -> Result<i64> {
     parse_rfc3339_utc(s).map(|dt| dt.timestamp_millis())
 }
 
 /// Parse an RFC3339 timestamp into a UTC datetime.
+///
+/// # Errors
+///
+/// Returns an error if the input string is not a valid RFC3339 timestamp.
 pub fn parse_rfc3339_utc(s: &str) -> Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(s)
         .map(|dt| dt.with_timezone(&Utc))
@@ -64,6 +72,10 @@ pub fn parse_rfc3339_utc(s: &str) -> Result<DateTime<Utc>> {
 }
 
 /// Parse a SQLite-style UTC timestamp (`YYYY-MM-DD HH:MM:SS`).
+///
+/// # Errors
+///
+/// Returns an error if the input string is not a valid `SQLite` UTC timestamp.
 pub fn parse_sqlite_utc(s: &str) -> Result<DateTime<Utc>> {
     NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
         .map(|dt| dt.and_utc())

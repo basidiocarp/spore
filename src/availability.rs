@@ -231,10 +231,10 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 #[must_use = "call probe_tool to check availability; discarding the report loses the result"]
 pub fn probe_tool(name: &str) -> AvailabilityReport {
     let entry = TOOL_TABLE.iter().find(|e| e.name == name);
-    let (tier, db_filename, capabilities) = entry.map_or(
-        (DegradationTier::Tier3, None, [].as_slice()),
-        |e| (e.tier, e.db_filename, e.capabilities),
-    );
+    let (tier, db_filename, capabilities) = entry
+        .map_or((DegradationTier::Tier3, None, [].as_slice()), |e| {
+            (e.tier, e.db_filename, e.capabilities)
+        });
 
     let start = Instant::now();
     let result = run_probe_within_budget(name, db_filename, start);
@@ -386,7 +386,9 @@ mod tests {
         assert_eq!(tier_for("rhizome"), DegradationTier::Tier2);
 
         // Tier 3 — optional
-        for name in &["cortina", "canopy", "hymenium", "stipe", "volva", "annulus", "cap"] {
+        for name in &[
+            "cortina", "canopy", "hymenium", "stipe", "volva", "annulus", "cap",
+        ] {
             assert_eq!(
                 tier_for(name),
                 DegradationTier::Tier3,
@@ -401,7 +403,10 @@ mod tests {
     #[test]
     fn unavailable_tool_has_non_empty_reason() {
         let report = probe_tool("__spore_test_nonexistent_binary__");
-        assert!(!report.available, "nonexistent binary should not be available");
+        assert!(
+            !report.available,
+            "nonexistent binary should not be available"
+        );
         assert!(
             report.reason.is_some(),
             "unavailable tool must populate reason"
@@ -471,7 +476,10 @@ mod tests {
 
     #[test]
     fn tier1_tools_have_degraded_capabilities() {
-        for entry in TOOL_TABLE.iter().filter(|e| e.tier == DegradationTier::Tier1) {
+        for entry in TOOL_TABLE
+            .iter()
+            .filter(|e| e.tier == DegradationTier::Tier1)
+        {
             assert!(
                 !entry.capabilities.is_empty(),
                 "Tier1 tool '{}' must declare degraded capabilities",

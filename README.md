@@ -45,7 +45,7 @@ not each need their own half-compatible version.
 
 ```toml
 [dependencies]
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.9" }
+spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.11" }
 ```
 
 ```rust
@@ -141,10 +141,9 @@ field names stay stable across repos instead of hand-rolling new conventions.
 
 ```bash
 cargo build
-cargo nextest run
 cargo test
-cargo clippy
-cargo fmt
+cargo clippy -- -D warnings
+cargo fmt --check
 ```
 
 - Prefer `cargo nextest run` for the normal test loop.
