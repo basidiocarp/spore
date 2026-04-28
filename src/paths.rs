@@ -124,6 +124,33 @@ pub fn db_path(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Capability Registry Paths
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Resolve the path for the installed ecosystem capability registry file.
+///
+/// Default: `<data_dir("basidiocarp")>/capability-registry.json`
+///
+/// Stipe writes this file after successful install or update. Spore reads it
+/// when resolving a capability id to a binary or endpoint candidate.
+#[must_use]
+pub fn capability_registry_path() -> PathBuf {
+    data_dir("basidiocarp").join("capability-registry.json")
+}
+
+/// Resolve the directory where runtime capability lease files are stored.
+///
+/// Default: `<data_dir("basidiocarp")>/leases/`
+///
+/// Running tools write individual `<capability-id>.json` lease files here when
+/// they start serving a capability. Spore reads these when resolving a
+/// capability id to a live endpoint.
+#[must_use]
+pub fn capability_lease_dir() -> PathBuf {
+    data_dir("basidiocarp").join("leases")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Project Root Detection
 // ─────────────────────────────────────────────────────────────────────────────
 

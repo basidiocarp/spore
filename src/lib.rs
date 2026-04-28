@@ -1,4 +1,5 @@
 pub mod availability;
+pub mod capability;
 pub mod config;
 pub mod datetime;
 pub mod discovery;
