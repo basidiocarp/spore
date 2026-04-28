@@ -325,11 +325,11 @@ mod tests {
     use tempfile::tempdir;
 
     fn registry_fixture() -> &'static str {
-        include_str!("../../septa/fixtures/capability-registry-v1.example.json")
+        include_str!("../tests/fixtures/capability-registry-v1.example.json")
     }
 
     fn lease_fixture() -> &'static str {
-        include_str!("../../septa/fixtures/capability-runtime-lease-v1.example.json")
+        include_str!("../tests/fixtures/capability-runtime-lease-v1.example.json")
     }
 
     // ── CapabilityRegistry ───────────────────────────────────────────────────

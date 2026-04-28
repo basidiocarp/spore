@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "written_at_unix": 1745827200,
+  "entries": [
+    {
+      "tool": "hyphae",
+      "version": "1.4.2",
+      "manager": "stipe",
+      "capability_ids": ["memory.store.v1", "memory.recall.v1", "memoir.import.v1"],
+      "contract_ids": ["command-output-v1", "code-graph-v1"],
+      "transport": "stdio",
+      "binary_path": "/Users/user/.local/bin/hyphae",
+      "health": {
+        "status": "ok",
+        "message": null
+      }
+    },
+    {
+      "tool": "rhizome",
+      "version": "0.9.1",
+      "manager": "stipe",
+      "capability_ids": ["code.graph.v1", "code.symbols.v1"],
+      "contract_ids": ["code-graph-v1"],
+      "transport": "stdio",
+      "binary_path": "/Users/user/.local/bin/rhizome",
+      "health": {
+        "status": "ok",
+        "message": null
+      }
+    },
+    {
+      "tool": "mycelium",
+      "version": "0.7.0",
+      "manager": "stipe",
+      "capability_ids": ["command.filter.v1"],
+      "contract_ids": ["command-output-v1", "mycelium-gain-v1"],
+      "transport": "cli",
+      "binary_path": "/Users/user/.local/bin/mycelium",
+      "health": {
+        "status": "ok",
+        "message": null
+      }
+    },
+    {
+      "tool": "hymenium",
+      "version": "0.3.0",
+      "manager": "stipe",
+      "capability_ids": ["workflow.dispatch.v1"],
+      "contract_ids": ["dispatch-request-v1", "workflow-outcome-v1"],
+      "transport": "cli",
+      "binary_path": "/Users/user/.local/bin/hymenium",
+      "health": {
+        "status": "degraded",
+        "message": "canopy service not reachable; dispatch will fall back to local mode"
+      }
+    },
+    {
+      "tool": "jq",
+      "version": "1.7.1",
+      "manager": "manual",
+      "capability_ids": ["json.transform.v1"],
+      "contract_ids": [],
+      "transport": "cli",
+      "binary_path": "/usr/local/bin/jq",
+      "health": {
+        "status": "ok",
+        "message": null
+      }
+    }
+  ]
+}

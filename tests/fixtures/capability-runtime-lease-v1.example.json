@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "tool": "hyphae",
+  "capability_id": "memory.store.v1",
+  "transport": "stdio",
+  "pid": 94712,
+  "leased_at_unix": 1745827800,
+  "expires_at_unix": 1745914200,
+  "endpoint": null,
+  "command": "/Users/user/.local/bin/hyphae",
+  "version": "1.4.2",
+  "health": {
+    "status": "ok",
+    "message": null
+  }
+}
