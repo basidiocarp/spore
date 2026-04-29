@@ -39,11 +39,18 @@ pub struct HealthProbe {
     pub timeout_ms: Option<u64>,
 }
 
+fn schema_v1_default() -> String {
+    "1.0".to_string()
+}
+
 /// Descriptor for a local service endpoint.
 ///
 /// Parsed from JSON using the septa `local-service-endpoint-v1` schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalServiceEndpoint {
+    /// Schema version from the septa contract. Must be `"1.0"` for this struct.
+    #[serde(default = "schema_v1_default")]
+    pub schema_version: String,
     pub transport: Transport,
     pub endpoint: String,
     pub capability_id: Option<String>,
@@ -57,9 +64,17 @@ impl LocalServiceEndpoint {
     ///
     /// # Errors
     ///
-    /// Returns an error if the JSON is invalid or does not conform to the expected schema.
+    /// Returns `TransportError::UnsupportedVersion` if the document carries a
+    /// `schema_version` other than `"1.0"`. Returns `TransportError::Parse` if
+    /// the JSON is malformed.
     pub fn from_json(json: &str) -> Result<Self, TransportError> {
-        serde_json::from_str(json).map_err(TransportError::Parse)
+        let endpoint: Self = serde_json::from_str(json).map_err(TransportError::Parse)?;
+        if endpoint.schema_version != "1.0" {
+            return Err(TransportError::UnsupportedVersion {
+                version: endpoint.schema_version.clone(),
+            });
+        }
+        Ok(endpoint)
     }
 }
 
@@ -94,6 +109,9 @@ pub enum TransportError {
 
     #[error("transport {transport} not supported on this platform")]
     NotSupported { transport: String },
+
+    #[error("unsupported schema version {version:?}; expected \"1.0\"")]
+    UnsupportedVersion { version: String },
 
     #[error("parse error: {0}")]
     Parse(#[from] serde_json::Error),
@@ -180,14 +198,14 @@ impl LocalServiceClient {
                     detail: "no health probe configured".to_string(),
                 })?;
 
+        let method = probe.method.clone();
         let timeout_ms = probe
             .timeout_ms
             .or(self.endpoint.timeout_ms)
             .unwrap_or(DEFAULT_TIMEOUT_MS);
         let timeout = Duration::from_millis(timeout_ms);
 
-        // For now, we treat any successful call as healthy.
-        match self.call_with_timeout("PING", Value::Null, timeout) {
+        match self.call_with_timeout(&method, Value::Null, timeout) {
             Ok(_) => Ok(true),
             Err(TransportError::Timeout { .. }) => Err(TransportError::Timeout {
                 endpoint: self.endpoint.endpoint.clone(),
@@ -215,6 +233,12 @@ impl LocalServiceClient {
 
         stream
             .set_read_timeout(Some(timeout))
+            .map_err(|e| TransportError::Io {
+                endpoint: self.endpoint.endpoint.clone(),
+                source: e,
+            })?;
+        stream
+            .set_write_timeout(Some(timeout))
             .map_err(|e| TransportError::Io {
                 endpoint: self.endpoint.endpoint.clone(),
                 source: e,
@@ -273,10 +297,22 @@ impl LocalServiceClient {
                     });
                 }
                 Some(Err(e)) => {
-                    return Err(TransportError::Io {
-                        endpoint: self.endpoint.endpoint.clone(),
-                        source: e,
-                    });
+                    return Err(
+                        if e.kind() == std::io::ErrorKind::TimedOut
+                            || e.kind() == std::io::ErrorKind::WouldBlock
+                        {
+                            TransportError::Timeout {
+                                endpoint: self.endpoint.endpoint.clone(),
+                                timeout_ms: u64::try_from(timeout.as_millis())
+                                    .unwrap_or(u64::MAX),
+                            }
+                        } else {
+                            TransportError::Io {
+                                endpoint: self.endpoint.endpoint.clone(),
+                                source: e,
+                            }
+                        },
+                    );
                 }
                 None => {
                     return Err(TransportError::Protocol {
@@ -309,6 +345,12 @@ impl LocalServiceClient {
                 endpoint: self.endpoint.endpoint.clone(),
                 source: e,
             })?;
+        stream
+            .set_write_timeout(Some(timeout))
+            .map_err(|e| TransportError::Io {
+                endpoint: self.endpoint.endpoint.clone(),
+                source: e,
+            })?;
 
         let mut writer = stream.try_clone().map_err(|e| TransportError::Io {
             endpoint: self.endpoint.endpoint.clone(),
@@ -363,10 +405,22 @@ impl LocalServiceClient {
                     });
                 }
                 Some(Err(e)) => {
-                    return Err(TransportError::Io {
-                        endpoint: self.endpoint.endpoint.clone(),
-                        source: e,
-                    });
+                    return Err(
+                        if e.kind() == std::io::ErrorKind::TimedOut
+                            || e.kind() == std::io::ErrorKind::WouldBlock
+                        {
+                            TransportError::Timeout {
+                                endpoint: self.endpoint.endpoint.clone(),
+                                timeout_ms: u64::try_from(timeout.as_millis())
+                                    .unwrap_or(u64::MAX),
+                            }
+                        } else {
+                            TransportError::Io {
+                                endpoint: self.endpoint.endpoint.clone(),
+                                source: e,
+                            }
+                        },
+                    );
                 }
                 None => {
                     return Err(TransportError::Protocol {
@@ -407,6 +461,7 @@ mod tests {
     #[test]
     fn test_endpoint_from_json() {
         let json = r#"{
+            "schema_version": "1.0",
             "transport": "unix-socket",
             "endpoint": "/tmp/test.sock",
             "capability_id": "test.v1",
@@ -451,6 +506,7 @@ mod tests {
     #[test]
     fn test_client_new() {
         let endpoint = LocalServiceEndpoint {
+            schema_version: "1.0".to_string(),
             transport: Transport::Tcp,
             endpoint: "127.0.0.1:8000".to_string(),
             capability_id: None,
@@ -473,6 +529,17 @@ mod tests {
         let client = LocalServiceClient::from_json(json).unwrap();
         assert_eq!(client.endpoint.transport, Transport::Tcp);
         assert_eq!(client.endpoint.endpoint, "127.0.0.1:9000");
+    }
+
+    #[test]
+    fn test_unsupported_schema_version_rejected() {
+        let json = r#"{
+            "schema_version": "2.0",
+            "transport": "tcp",
+            "endpoint": "127.0.0.1:8000"
+        }"#;
+        let err = LocalServiceEndpoint::from_json(json).unwrap_err();
+        assert!(matches!(err, TransportError::UnsupportedVersion { .. }));
     }
 
     #[test]

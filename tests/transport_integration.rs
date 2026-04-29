@@ -61,6 +61,7 @@ fn test_parse_tcp_endpoint_from_json() {
 #[cfg(unix)]
 fn test_connect_to_missing_unix_socket_returns_connect_error() {
     let endpoint = LocalServiceEndpoint {
+        schema_version: "1.0".to_string(),
         transport: spore::transport::Transport::UnixSocket,
         endpoint: "/tmp/nonexistent-socket-12345.sock".to_string(),
         capability_id: None,
