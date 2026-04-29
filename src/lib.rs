@@ -15,11 +15,13 @@ pub mod subprocess;
 #[cfg(feature = "otel")]
 pub mod telemetry;
 pub mod tokens;
+pub mod transport;
 pub mod types;
 
 pub use discovery::{discover, discover_all};
 pub use error::{EcosystemError, Result, SporeError};
 pub use subprocess::{Framing, McpClient};
+pub use transport::{LocalServiceClient, LocalServiceEndpoint, TransportError};
 pub use types::{EcosystemStatus, ProjectContext, Tool, ToolInfo};
 
 /// Return a normalized runtime session id from `CLAUDE_SESSION_ID`.
