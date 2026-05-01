@@ -4,49 +4,33 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  fmt:
-    name: Format
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
       - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - name: Clippy (Windows cross-check)
+        run: cargo clippy --all-targets --target x86_64-pc-windows-gnu -- -D warnings
 
-  check:
-    name: Check (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: actions/cache@v5.0.4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-      - run: cargo clippy -- -D warnings
-      - run: cargo test
+  ci:
+    needs: [lint]
+    uses: basidiocarp/.github/.github/workflows/rust-ci.yml@1b81c125bdbd08a3454e7fed7446a0e2fee68e26
+    with:
+      audit: true
