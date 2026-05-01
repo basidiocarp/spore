@@ -303,8 +303,7 @@ impl LocalServiceClient {
                         {
                             TransportError::Timeout {
                                 endpoint: self.endpoint.endpoint.clone(),
-                                timeout_ms: u64::try_from(timeout.as_millis())
-                                    .unwrap_or(u64::MAX),
+                                timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
                             }
                         } else {
                             TransportError::Io {
@@ -411,8 +410,7 @@ impl LocalServiceClient {
                         {
                             TransportError::Timeout {
                                 endpoint: self.endpoint.endpoint.clone(),
-                                timeout_ms: u64::try_from(timeout.as_millis())
-                                    .unwrap_or(u64::MAX),
+                                timeout_ms: u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
                             }
                         } else {
                             TransportError::Io {
