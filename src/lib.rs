@@ -1,4 +1,5 @@
 pub mod availability;
+pub mod cache;
 pub mod capability;
 pub mod config;
 pub mod datetime;
@@ -18,6 +19,7 @@ pub mod tokens;
 pub mod transport;
 pub mod types;
 
+pub use cache::{clear_namespace_cache, get_scoped_cache_key, with_cache_namespace};
 pub use discovery::{discover, discover_all};
 pub use error::{EcosystemError, Result, SporeError};
 pub use subprocess::{Framing, McpClient};

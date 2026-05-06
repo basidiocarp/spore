@@ -34,6 +34,10 @@ not each need their own half-compatible version.
 | **[mycelium](https://github.com/basidiocarp/mycelium)** | Token-optimized command output |
 | **[rhizome](https://github.com/basidiocarp/rhizome)** | Code intelligence via tree-sitter and LSP |
 | **[stipe](https://github.com/basidiocarp/stipe)** | Ecosystem installer and manager |
+| **[cortina](https://github.com/basidiocarp/cortina)** | Lifecycle signal runner |
+| **[canopy](https://github.com/basidiocarp/canopy)** | Multi-agent coordination runtime |
+| **[volva](https://github.com/basidiocarp/volva)** | Execution-host runtime layer |
+| **[lamella](https://github.com/basidiocarp/lamella)** | Skills, hooks, and plugin packaging |
 
 > **Boundary:** `spore` owns reusable transport and editor primitives.
 > `stipe` owns ecosystem policy such as install profiles, tool inventory, and
@@ -45,8 +49,10 @@ not each need their own half-compatible version.
 
 ```toml
 [dependencies]
-spore = { git = "https://github.com/basidiocarp/spore", tag = "v0.4.11" }
+spore = { git = "https://github.com/basidiocarp/spore", rev = "0bc2e878010e75e30e26fa517d747e97d59628b0" }
 ```
+
+Use `rev=` with an immutable commit SHA rather than `tag=`. See `ecosystem-versions.toml` in the basidiocarp workspace for the current pinned revision.
 
 ```rust
 use spore::{discover, McpClient, Tool};
@@ -93,6 +99,8 @@ write config      ─►    editor descriptors     ─►    host config file
 - Subprocess clients: spawn and communicate with sibling servers.
 - Editor primitives: resolve config paths and format details for supported hosts.
 - Shared logging: app-aware env vars, safe `try_init` paths, and MCP-safe stderr defaults.
+- Self-update helpers: check, download, and install updates from GitHub releases.
+- OpenTelemetry support: feature-gated OTEL tracer initialization and W3C trace context propagation.
 - Default feature split: `logging` and `http` stay on for compatibility, but consumers can disable default features when they want a slimmer embed.
 
 ---
@@ -101,7 +109,7 @@ write config      ─►    editor descriptors     ─►    host config file
 
 ```text
 spore/
-├── src/        shared discovery, JSON-RPC, MCP, and editor modules
+├── src/        shared discovery, JSON-RPC, MCP, editor, logging, self-update, and telemetry modules
 ├── tests/      integration coverage
 └── docs/       protocol and internal notes
 ```
