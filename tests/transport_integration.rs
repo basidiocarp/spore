@@ -1,4 +1,6 @@
-use spore::{LocalServiceClient, LocalServiceEndpoint, TransportError};
+use spore::LocalServiceEndpoint;
+#[cfg(unix)]
+use spore::{LocalServiceClient, TransportError};
 
 #[test]
 fn test_parse_unix_socket_endpoint_from_json() {
