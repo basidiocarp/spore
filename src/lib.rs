@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod availability;
 pub mod cache;
 pub mod capability;
@@ -19,6 +20,7 @@ pub mod tokens;
 pub mod transport;
 pub mod types;
 
+pub use atomic::{atomic_write_bytes, atomic_write_json, FileLock};
 pub use cache::{clear_namespace_cache, get_scoped_cache_key, with_cache_namespace};
 pub use discovery::{discover, discover_all};
 pub use error::{EcosystemError, Result, SporeError};
