@@ -296,8 +296,12 @@ fn run_probe_within_budget(
     }
 
     // Secondary check: data directory / db file (if registered).
+    // When HOME is unset, data_dir returns an error and the path cannot exist —
+    // treat it the same as a missing data path.
     let data_path_found = db_filename.map(|filename| {
-        let path = paths::data_dir(name).join(filename);
+        let path = paths::data_dir(name)
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(filename);
         path.exists()
     });
 
@@ -308,7 +312,9 @@ fn run_probe_within_budget(
         // some point but may have been removed from PATH. Treat as unavailable
         // with an informative reason.
         (false, Some(true)) => {
-            let db_path = paths::data_dir(name).join(db_filename.unwrap_or(""));
+            let db_path = paths::data_dir(name)
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .join(db_filename.unwrap_or(""));
             Err(format!(
                 "binary not found on PATH (data dir present: {})",
                 db_path.display()
@@ -318,6 +324,7 @@ fn run_probe_within_budget(
         (false, Some(false)) => Err(format!(
             "binary not found on PATH; db path missing: {}",
             paths::data_dir(name)
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
                 .join(db_filename.unwrap_or(""))
                 .display()
         )),

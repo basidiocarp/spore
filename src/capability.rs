@@ -136,10 +136,11 @@ impl CapabilityRegistry {
     ///
     /// # Errors
     ///
-    /// Returns [`SporeError::Json`] on parse failure or [`SporeError::Other`]
-    /// on unexpected I/O errors.
+    /// Returns [`SporeError::Path`] when the data directory cannot be
+    /// determined, [`SporeError::Json`] on parse failure, or
+    /// [`SporeError::Other`] on unexpected I/O errors.
     pub fn load() -> Result<Option<Self>> {
-        Self::load_from(&crate::paths::capability_registry_path())
+        Self::load_from(&crate::paths::capability_registry_path()?)
     }
 }
 
@@ -190,27 +191,56 @@ pub struct RuntimeLease {
 }
 
 impl RuntimeLease {
+    /// Load all valid lease files from a directory, collecting parse errors.
+    ///
+    /// Returns `(leases, errors)` where `errors` contains `(path, message)` pairs
+    /// for every `.json` file that could not be read or parsed. Non-existent
+    /// directories return an empty result with no errors.
+    ///
+    /// Use this variant in hot paths where corrupted lease files should be
+    /// surfaced as diagnostics rather than silently dropped.
+    #[must_use]
+    pub fn load_from_dir_with_diagnostics(dir: &Path) -> (Vec<Self>, Vec<(PathBuf, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return (Vec::new(), Vec::new());
+        };
+
+        let mut leases = Vec::new();
+        let mut errors: Vec<(PathBuf, String)> = Vec::new();
+
+        for entry in entries.filter_map(std::result::Result::ok) {
+            let path = entry.path();
+            if !path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+            {
+                continue;
+            }
+
+            match std::fs::read_to_string(&path) {
+                Err(e) => errors.push((path, format!("read error: {e}"))),
+                Ok(content) => match serde_json::from_str::<Self>(&content) {
+                    Ok(lease) => leases.push(lease),
+                    Err(e) => errors.push((path, format!("parse error: {e}"))),
+                },
+            }
+        }
+
+        (leases, errors)
+    }
+
     /// Load all valid lease files from a directory.
     ///
     /// Silently skips files that cannot be read or parsed — a stale or
     /// malformed lease file must not prevent the registry from being consulted.
     /// Non-existent directories return an empty vec.
+    ///
+    /// Use [`Self::load_from_dir_with_diagnostics`] when parse errors should be
+    /// surfaced to the caller or logged.
     #[must_use]
     pub fn load_from_dir(dir: &Path) -> Vec<Self> {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return Vec::new();
-        };
-
-        entries
-            .filter_map(std::result::Result::ok)
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
-            })
-            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-            .filter_map(|content| serde_json::from_str::<Self>(&content).ok())
-            .collect()
+        let (leases, _errors) = Self::load_from_dir_with_diagnostics(dir);
+        leases
     }
 
     /// Returns `true` when this lease has passed its `expires_at_unix` deadline.
@@ -271,8 +301,14 @@ pub fn resolve_capability(
     registry_path: &Path,
     lease_dir: &Path,
 ) -> Result<Option<EndpointCandidate>> {
-    // Step 1: check live leases first.
-    let leases = RuntimeLease::load_from_dir(lease_dir);
+    // Step 1: check live leases first, surfacing parse errors as warnings.
+    let (leases, parse_errors) = RuntimeLease::load_from_dir_with_diagnostics(lease_dir);
+    for (path, msg) in &parse_errors {
+        tracing::warn!(
+            lease_path = %path.display(),
+            "skipping unreadable lease file: {msg}"
+        );
+    }
     for lease in &leases {
         if lease.capability_id == capability_id && !lease.is_expired() {
             return Ok(Some(EndpointCandidate {
@@ -397,6 +433,34 @@ mod tests {
         fs::write(dir.path().join("bad.json"), b"not json").unwrap();
         let leases = RuntimeLease::load_from_dir(dir.path());
         assert!(leases.is_empty());
+    }
+
+    #[test]
+    fn load_from_dir_with_diagnostics_surfaces_parse_errors() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("corrupt.json"), b"not json").unwrap();
+        fs::write(dir.path().join("hyphae.json"), lease_fixture()).unwrap();
+
+        let (leases, errors) = RuntimeLease::load_from_dir_with_diagnostics(dir.path());
+        assert_eq!(leases.len(), 1, "valid lease should load");
+        assert_eq!(
+            errors.len(),
+            1,
+            "corrupt file should produce one diagnostic"
+        );
+        let (_path, msg) = &errors[0];
+        assert!(
+            msg.contains("parse error"),
+            "diagnostic should describe parse failure: {msg}"
+        );
+    }
+
+    #[test]
+    fn load_from_dir_with_diagnostics_empty_for_absent_dir() {
+        let (leases, errors) =
+            RuntimeLease::load_from_dir_with_diagnostics(Path::new("/nonexistent-spore-dir-xyz"));
+        assert!(leases.is_empty());
+        assert!(errors.is_empty());
     }
 
     #[test]

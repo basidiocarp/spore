@@ -17,26 +17,53 @@ use crate::error::{Result, SporeError};
 /// Returns `~/.config/<app_name>/` on Linux/macOS, or the platform equivalent
 /// via `dirs::config_dir()`.
 ///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when the platform config directory cannot be
+/// determined (typically because `HOME` is unset, as in some container or CI
+/// environments). Callers in other repos that currently use the previous
+/// infallible signature will need updating — see the migration note below.
+///
+/// # Migration
+///
+/// **Breaking change from the previous `#[must_use] pub fn config_dir(...) -> PathBuf` API.**
+/// The old signature silently fell back to `"."` when `HOME` was unset, producing
+/// state files in whatever the current working directory happened to be. The new
+/// signature surfaces the error so callers can respond explicitly.
+///
+/// Consumer repos that call `spore::paths::config_dir` must be updated to handle
+/// the `Result`. A typical migration is:
+/// ```rust,ignore
+/// // Before
+/// let dir = spore::paths::config_dir("myapp");
+/// // After
+/// let dir = spore::paths::config_dir("myapp")?;
+/// ```
+///
 /// # Examples
 ///
 /// ```
 /// let dir = spore::paths::config_dir("mycelium");
-/// // On macOS: ~/Library/Application Support/mycelium/
-/// // On Linux: ~/.config/mycelium/
+/// // On macOS: Ok(~/Library/Application Support/mycelium/)
+/// // On Linux: Ok(~/.config/mycelium/)
 /// ```
-#[must_use]
-pub fn config_dir(app_name: &str) -> PathBuf {
+pub fn config_dir(app_name: &str) -> Result<PathBuf> {
     dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(app_name)
+        .ok_or_else(|| {
+            SporeError::Path("cannot determine config directory: HOME not set".to_string())
+        })
+        .map(|base| base.join(app_name))
 }
 
 /// Resolve the config file path for an ecosystem tool.
 ///
 /// Returns `<config_dir>/<app_name>/config.toml`.
-#[must_use]
-pub fn config_path(app_name: &str) -> PathBuf {
-    config_dir(app_name).join("config.toml")
+///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when the config directory cannot be determined.
+pub fn config_path(app_name: &str) -> Result<PathBuf> {
+    config_dir(app_name).map(|d| d.join("config.toml"))
 }
 
 /// Resolve a config file path with an environment variable override.
@@ -47,10 +74,14 @@ pub fn config_path(app_name: &str) -> PathBuf {
 ///
 /// Tilde (`~`) at the start of the env-var value is expanded to the home
 /// directory, matching the expansion applied to the config-file path.
-#[must_use]
-pub fn config_path_with_env(app_name: &str, env_var: &str) -> PathBuf {
+///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when no env-var override is set and the
+/// platform config directory cannot be determined.
+pub fn config_path_with_env(app_name: &str, env_var: &str) -> Result<PathBuf> {
     if let Ok(p) = std::env::var(env_var) {
-        return expand_tilde(p);
+        return Ok(expand_tilde(p));
     }
     config_path(app_name)
 }
@@ -78,11 +109,23 @@ fn expand_tilde(p: String) -> PathBuf {
 ///
 /// Returns `~/.local/share/<app_name>/` on Linux, or the platform equivalent
 /// via `dirs::data_local_dir()`.
-#[must_use]
-pub fn data_dir(app_name: &str) -> PathBuf {
+///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when the platform data directory cannot be
+/// determined (typically because `HOME` is unset).
+///
+/// # Migration
+///
+/// **Breaking change from the previous `#[must_use] pub fn data_dir(...) -> PathBuf` API.**
+/// The old signature silently fell back to `"."`. Consumer repos must update to
+/// handle the `Result`.
+pub fn data_dir(app_name: &str) -> Result<PathBuf> {
     dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(app_name)
+        .ok_or_else(|| {
+            SporeError::Path("cannot determine data directory: HOME not set".to_string())
+        })
+        .map(|base| base.join(app_name))
 }
 
 /// Resolve a database file path for an ecosystem tool.
@@ -108,7 +151,7 @@ pub fn db_path(
     } else if let Ok(p) = std::env::var(env_var) {
         PathBuf::from(p)
     } else {
-        data_dir(app_name).join(db_filename)
+        data_dir(app_name)?.join(db_filename)
     };
 
     if let Some(parent) = path.parent() {
@@ -133,9 +176,12 @@ pub fn db_path(
 ///
 /// Stipe writes this file after successful install or update. Spore reads it
 /// when resolving a capability id to a binary or endpoint candidate.
-#[must_use]
-pub fn capability_registry_path() -> PathBuf {
-    data_dir("basidiocarp").join("capability-registry.json")
+///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when the data directory cannot be determined.
+pub fn capability_registry_path() -> Result<PathBuf> {
+    data_dir("basidiocarp").map(|d| d.join("capability-registry.json"))
 }
 
 /// Resolve the directory where runtime capability lease files are stored.
@@ -145,9 +191,12 @@ pub fn capability_registry_path() -> PathBuf {
 /// Running tools write individual `<capability-id>.json` lease files here when
 /// they start serving a capability. Spore reads these when resolving a
 /// capability id to a live endpoint.
-#[must_use]
-pub fn capability_lease_dir() -> PathBuf {
-    data_dir("basidiocarp").join("leases")
+///
+/// # Errors
+///
+/// Returns [`SporeError::Path`] when the data directory cannot be determined.
+pub fn capability_lease_dir() -> Result<PathBuf> {
+    data_dir("basidiocarp").map(|d| d.join("leases"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,21 +251,25 @@ mod tests {
 
     #[test]
     fn test_config_dir_returns_path() {
-        let dir = config_dir("mycelium");
-        assert!(dir.ends_with("mycelium"));
+        // HOME is set in a normal dev environment; skip if not.
+        if let Ok(dir) = config_dir("mycelium") {
+            assert!(dir.ends_with("mycelium"));
+        }
     }
 
     #[test]
     fn test_config_path_returns_toml() {
-        let path = config_path("hyphae");
-        assert!(path.ends_with("config.toml"));
-        assert!(path.to_string_lossy().contains("hyphae"));
+        if let Ok(path) = config_path("hyphae") {
+            assert!(path.ends_with("config.toml"));
+            assert!(path.to_string_lossy().contains("hyphae"));
+        }
     }
 
     #[test]
     fn test_data_dir_returns_path() {
-        let dir = data_dir("mycelium");
-        assert!(dir.ends_with("mycelium"));
+        if let Ok(dir) = data_dir("mycelium") {
+            assert!(dir.ends_with("mycelium"));
+        }
     }
 
     #[test]

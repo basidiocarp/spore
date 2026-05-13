@@ -1,41 +1,45 @@
 use crate::types::{Tool, ToolInfo};
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-static MYCELIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static HYPHAE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static RHIZOME_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static CORTINA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static CANOPY_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static VOLVA_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static CAP_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static STIPE_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static HYMENIUM_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
-static ANNULUS_CACHE: OnceLock<Option<ToolInfo>> = OnceLock::new();
+// Only successful probes are stored. A missing key means "not yet found or
+// last probe failed" — callers re-probe immediately on cache miss rather than
+// returning a cached None. This prevents long-lived daemons from permanently
+// losing tools that were installed after startup.
+static DISCOVERY_CACHE: OnceLock<Mutex<HashMap<Tool, ToolInfo>>> = OnceLock::new();
+
+fn cache() -> &'static Mutex<HashMap<Tool, ToolInfo>> {
+    DISCOVERY_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Discover a specific ecosystem tool in PATH.
-/// Results are cached for the lifetime of the process.
 ///
-/// Note: the cache is process-global via [`OnceLock`]. In tests that need
-/// reproducible discovery results, set up the PATH before the test runs or
-/// use a fresh process. The `#[cfg(test)]` helper `clear_cache_for_test` is
-/// available to reset a specific entry when tests run sequentially.
+/// Successful probes are cached for the lifetime of the process. Failed probes
+/// are not cached: each miss re-probes the filesystem so that tools installed
+/// after startup become visible without restarting the daemon.
+///
+/// Note: in tests that need reproducible discovery results, set up PATH before
+/// the test runs or use `probe_uncached` / `clear_cache_for_test` directly.
 #[must_use]
 pub fn discover(tool: Tool) -> Option<ToolInfo> {
-    let cache = match tool {
-        Tool::Mycelium => &MYCELIUM_CACHE,
-        Tool::Hyphae => &HYPHAE_CACHE,
-        Tool::Rhizome => &RHIZOME_CACHE,
-        Tool::Cortina => &CORTINA_CACHE,
-        Tool::Canopy => &CANOPY_CACHE,
-        Tool::Volva => &VOLVA_CACHE,
-        Tool::Cap => &CAP_CACHE,
-        Tool::Stipe => &STIPE_CACHE,
-        Tool::Hymenium => &HYMENIUM_CACHE,
-        Tool::Annulus => &ANNULUS_CACHE,
-    };
-    cache.get_or_init(|| probe(tool)).clone()
+    // Fast path: return cached success.
+    if let Ok(guard) = cache().lock() {
+        if let Some(info) = guard.get(&tool) {
+            return Some(info.clone());
+        }
+    }
+
+    // Cache miss: probe without holding the lock (probe may block for up to 5 s).
+    let info = probe(tool)?;
+
+    // Store successful result.
+    if let Ok(mut guard) = cache().lock() {
+        guard.insert(tool, info.clone());
+    }
+
+    Some(info)
 }
 
 /// Probe the given tool without consulting the cache.
@@ -47,6 +51,16 @@ pub fn discover(tool: Tool) -> Option<ToolInfo> {
 #[must_use]
 pub fn probe_uncached(tool: Tool) -> Option<ToolInfo> {
     probe(tool)
+}
+
+/// Clear a specific tool's entry from the discovery cache.
+///
+/// For use in sequential tests that need to reset state between runs.
+#[cfg(test)]
+pub fn clear_cache_for_test(tool: Tool) {
+    if let Ok(mut guard) = cache().lock() {
+        guard.remove(&tool);
+    }
 }
 
 /// Discover all ecosystem tools in PATH.

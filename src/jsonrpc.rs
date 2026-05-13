@@ -5,10 +5,23 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 static NEXT_ID: AtomicI64 = AtomicI64::new(1);
 
+/// JSON-RPC 2.0 request/response identifier.
+///
+/// The spec allows string IDs, number IDs, or null. Using `i64` only caused
+/// parse failures when MCP servers returned string IDs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum RequestId {
+    Number(i64),
+    String(String),
+    #[default]
+    Null,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {
     pub jsonrpc: &'static str,
-    pub id: i64,
+    pub id: RequestId,
     pub method: String,
     #[serde(default)]
     pub params: Value,
@@ -19,7 +32,7 @@ impl Request {
     pub fn new(method: &str, params: Value) -> Self {
         Self {
             jsonrpc: "2.0",
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: RequestId::Number(NEXT_ID.fetch_add(1, Ordering::Relaxed)),
             method: method.to_string(),
             params,
         }
@@ -29,7 +42,7 @@ impl Request {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Response {
     pub jsonrpc: String,
-    pub id: i64,
+    pub id: RequestId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,7 +124,7 @@ mod tests {
 
 {"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
         let resp = decode(raw).unwrap();
-        assert_eq!(resp.id, 1);
+        assert_eq!(resp.id, RequestId::Number(1));
         assert!(resp.result.is_some());
         assert!(resp.error.is_none());
     }
@@ -120,7 +133,21 @@ mod tests {
     fn test_decode_bare_json() {
         let raw = r#"{"jsonrpc":"2.0","id":1,"result":null}"#;
         let resp = decode(raw).unwrap();
-        assert_eq!(resp.id, 1);
+        assert_eq!(resp.id, RequestId::Number(1));
+    }
+
+    #[test]
+    fn test_decode_string_id() {
+        let raw = r#"{"jsonrpc":"2.0","id":"req-abc","result":null}"#;
+        let resp = decode(raw).unwrap();
+        assert_eq!(resp.id, RequestId::String("req-abc".to_string()));
+    }
+
+    #[test]
+    fn test_decode_null_id() {
+        let raw = r#"{"jsonrpc":"2.0","id":null,"result":null}"#;
+        let resp = decode(raw).unwrap();
+        assert_eq!(resp.id, RequestId::Null);
     }
 
     #[test]
@@ -148,6 +175,6 @@ mod tests {
     fn test_decode_crlf_separator() {
         let raw = "Content-Length: 37\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}";
         let resp = decode(raw).unwrap();
-        assert_eq!(resp.id, 1);
+        assert_eq!(resp.id, RequestId::Number(1));
     }
 }

@@ -1185,12 +1185,13 @@ dependencies = [
 
 [[package]]
 name = "spore"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "chrono",
  "dirs",
  "insta",
+ "libc",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

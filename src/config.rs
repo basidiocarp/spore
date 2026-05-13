@@ -33,8 +33,8 @@ use crate::paths;
 /// ```
 pub fn load<T: DeserializeOwned + Default>(app_name: &str, env_var: Option<&str>) -> Result<T> {
     let path = match env_var {
-        Some(var) => paths::config_path_with_env(app_name, var),
-        None => paths::config_path(app_name),
+        Some(var) => paths::config_path_with_env(app_name, var)?,
+        None => paths::config_path(app_name)?,
     };
 
     load_from_path(&path)
@@ -81,7 +81,7 @@ where
     T: DeserializeOwned + Default,
     F: FnOnce(T, T) -> T,
 {
-    let global_path = paths::config_path(app_name);
+    let global_path = paths::config_path(app_name)?;
     let project_path = project_root
         .join(format!(".{app_name}"))
         .join("config.toml");
@@ -104,7 +104,7 @@ where
 ///
 /// Returns an error if directories cannot be created or the file cannot be written.
 pub fn save<T: serde::Serialize>(app_name: &str, config: &T) -> Result<PathBuf> {
-    let path = paths::config_path(app_name);
+    let path = paths::config_path(app_name)?;
     save_to_path(&path, config)?;
     Ok(path)
 }
@@ -138,15 +138,20 @@ pub fn save_to_path<T: serde::Serialize>(path: &Path, config: &T) -> Result<()> 
 /// Return a human-readable string describing the active config path.
 #[must_use]
 pub fn describe_config_path(app_name: &str, env_var: Option<&str>) -> String {
-    let path = match env_var {
+    let path_result = match env_var {
         Some(var) => paths::config_path_with_env(app_name, var),
         None => paths::config_path(app_name),
     };
 
-    if path.exists() {
-        format!("{} (loaded)", path.display())
-    } else {
-        format!("{} (not found, using defaults)", path.display())
+    match path_result {
+        Err(e) => format!("(config path unavailable: {e})"),
+        Ok(path) => {
+            if path.exists() {
+                format!("{} (loaded)", path.display())
+            } else {
+                format!("{} (not found, using defaults)", path.display())
+            }
+        }
     }
 }
 
