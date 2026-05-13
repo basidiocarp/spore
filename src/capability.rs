@@ -248,15 +248,18 @@ impl RuntimeLease {
     /// Leases with no expiry (`expires_at_unix == None`) are never considered
     /// expired by this check alone; callers should additionally verify pid
     /// liveness when needed.
+    ///
+    /// If the system clock is before the Unix epoch (pre-epoch), the lease is
+    /// treated as expired conservatively.
     #[must_use]
     pub fn is_expired(&self) -> bool {
         let Some(expires) = self.expires_at_unix else {
             return false;
         };
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
-        now > expires
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(d) => d.as_secs() > expires,
+            Err(_) => true, // pre-epoch clock — treat as expired
+        }
     }
 }
 

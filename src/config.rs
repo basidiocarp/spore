@@ -48,13 +48,16 @@ pub fn load<T: DeserializeOwned + Default>(app_name: &str, env_var: Option<&str>
 ///
 /// Returns an error if the file exists but cannot be read or parsed.
 pub fn load_from_path<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
-    if path.exists() {
-        let content = std::fs::read_to_string(path)
-            .map_err(|_| SporeError::Config(format!("failed to read {}", path.display())))?;
-        let config: T = toml::from_str(&content).map_err(SporeError::Toml)?;
-        Ok(config)
-    } else {
-        Ok(T::default())
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let config: T = toml::from_str(&content).map_err(SporeError::Toml)?;
+            Ok(config)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
+        Err(_) => Err(SporeError::Config(format!(
+            "failed to read {}",
+            path.display()
+        ))),
     }
 }
 

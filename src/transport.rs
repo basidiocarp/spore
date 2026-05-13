@@ -248,6 +248,12 @@ impl LocalServiceClient {
             endpoint: self.endpoint.endpoint.clone(),
             source: e,
         })?;
+        writer
+            .set_write_timeout(Some(timeout))
+            .map_err(|e| TransportError::Io {
+                endpoint: self.endpoint.endpoint.clone(),
+                source: e,
+            })?;
 
         // Send request as newline-delimited JSON
         let request = jsonrpc::Request::new(method, params);
@@ -355,6 +361,12 @@ impl LocalServiceClient {
             endpoint: self.endpoint.endpoint.clone(),
             source: e,
         })?;
+        writer
+            .set_write_timeout(Some(timeout))
+            .map_err(|e| TransportError::Io {
+                endpoint: self.endpoint.endpoint.clone(),
+                source: e,
+            })?;
 
         // Send request as newline-delimited JSON
         let request = jsonrpc::Request::new(method, params);

@@ -252,7 +252,7 @@ impl McpClient {
             .args(&self.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(SporeError::SpawnFailed)?;
 
@@ -277,6 +277,12 @@ impl Drop for McpClient {
 fn read_line_delimited(
     reader: &mut BufReader<std::process::ChildStdout>,
 ) -> Result<jsonrpc::Response> {
+    const MAX_SKIP_LINES: usize = 1000;
+    const MAX_SKIP_BYTES: usize = 1024 * 1024; // 1MB
+
+    let mut skipped_lines = 0usize;
+    let mut skipped_bytes = 0usize;
+
     loop {
         let mut line = String::new();
         let n = reader
@@ -293,6 +299,13 @@ fn read_line_delimited(
         }
 
         if !trimmed.starts_with('{') {
+            skipped_lines += 1;
+            skipped_bytes += line.len();
+            if skipped_lines > MAX_SKIP_LINES || skipped_bytes > MAX_SKIP_BYTES {
+                return Err(SporeError::Other(format!(
+                    "subprocess produced {skipped_lines} non-JSON lines without a response"
+                )));
+            }
             continue;
         }
 

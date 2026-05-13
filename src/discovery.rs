@@ -1,6 +1,8 @@
 use crate::types::{Tool, ToolInfo};
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::io::BufRead;
+use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -72,30 +74,41 @@ pub fn discover_all() -> Vec<ToolInfo> {
 fn probe(tool: Tool) -> Option<ToolInfo> {
     let binary_path = which::which(tool.binary_name()).ok()?;
 
-    // Spawn the version probe in a separate thread with a 5-second timeout
-    // to prevent hangs if a tool's --version command is stuck.
-    let (tx, rx) = std::sync::mpsc::channel();
-    let binary_path_clone = binary_path.clone();
+    // Spawn the child process and read its version output in a background thread.
+    // The child is spawned here so we can kill it on timeout.
+    let mut child = Command::new(&binary_path)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
 
+    let stdout = child.stdout.take()?;
+    let (tx, rx) = mpsc::channel();
+
+    // Background thread reads the child's stdout and sends it to the channel.
     thread::spawn(move || {
-        let output = std::process::Command::new(&binary_path_clone)
-            .arg("--version")
-            .output()
-            .ok();
-        let _ = tx.send(output);
+        let mut buf = String::new();
+        let mut reader = std::io::BufReader::new(stdout);
+        if reader.read_line(&mut buf).is_ok() {
+            let _ = tx.send(buf);
+        }
     });
 
-    // Wait up to 5 seconds for the thread to produce a result.
-    let output = rx.recv_timeout(Duration::from_secs(5)).ok()??;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let version = parse_version(&stdout).unwrap_or_default();
-
-    Some(ToolInfo {
-        tool,
-        binary_path,
-        version,
-    })
+    // Wait up to 5 seconds for the output.
+    // If timeout occurs, kill the child so it doesn't hang indefinitely.
+    if let Ok(output) = rx.recv_timeout(Duration::from_secs(5)) {
+        let version = parse_version(&output).unwrap_or_default();
+        Some(ToolInfo {
+            tool,
+            binary_path,
+            version,
+        })
+    } else {
+        // Timeout: kill the child to prevent resource leaks.
+        let _ = child.kill();
+        None
+    }
 }
 
 fn parse_version(output: &str) -> Option<String> {

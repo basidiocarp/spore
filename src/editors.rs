@@ -338,34 +338,37 @@ fn register_mcp_servers_json(
     };
 
     // Atomic backup: write a temp file in the same directory then rename.
-    // Only attempt when the original already exists.
+    // Only attempt when the original already exists, and preserve the original backup
+    // (do not overwrite on subsequent registrations).
     {
         let backup = path.with_extension("json.bak");
-        match std::fs::read(&path) {
-            Ok(original_bytes) => {
-                let tmp_backup = path.with_extension("json.bak.tmp");
-                std::fs::write(&tmp_backup, &original_bytes).map_err(|e| {
-                    crate::error::SporeError::Config(format!(
-                        "writing backup temp for {}: {e}",
+        if !backup.exists() {
+            match std::fs::read(&path) {
+                Ok(original_bytes) => {
+                    let tmp_backup = path.with_extension("json.bak.tmp");
+                    std::fs::write(&tmp_backup, &original_bytes).map_err(|e| {
+                        crate::error::SporeError::Config(format!(
+                            "writing backup temp for {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                    std::fs::rename(&tmp_backup, &backup).map_err(|e| {
+                        let _ = std::fs::remove_file(&tmp_backup);
+                        crate::error::SporeError::Config(format!(
+                            "renaming backup for {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    // No original to back up.
+                }
+                Err(e) => {
+                    return Err(crate::error::SporeError::Config(format!(
+                        "reading {} for backup: {e}",
                         path.display()
-                    ))
-                })?;
-                std::fs::rename(&tmp_backup, &backup).map_err(|e| {
-                    let _ = std::fs::remove_file(&tmp_backup);
-                    crate::error::SporeError::Config(format!(
-                        "renaming backup for {}: {e}",
-                        path.display()
-                    ))
-                })?;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // No original to back up.
-            }
-            Err(e) => {
-                return Err(crate::error::SporeError::Config(format!(
-                    "reading {} for backup: {e}",
-                    path.display()
-                )));
+                    )));
+                }
             }
         }
     }

@@ -212,11 +212,31 @@ fn download_binary(binary_name: &str, current_version: &str, url: &str) -> Resul
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Validate Asset Name
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn safe_asset_name(name: &str) -> Result<&str> {
+    let file_name = std::path::Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| SporeError::Other("invalid asset name".into()))?;
+    if file_name != name {
+        return Err(SporeError::Other(format!(
+            "asset name contains path components: {name}"
+        )));
+    }
+    Ok(name)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Extract Binary
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn extract_binary(archive_bytes: &[u8], asset_name: &str, binary_name: &str) -> Result<Vec<u8>> {
     use std::process::Command;
+
+    // Validate asset name has no path components
+    let asset_name = safe_asset_name(asset_name)?;
 
     let tmp_dir = tempfile::tempdir()
         .map_err(|_| SporeError::Other("Failed to create temp directory".to_string()))?;
@@ -294,6 +314,8 @@ fn replace_binary(binary_name: &str, current_exe: &Path, binary_bytes: &[u8]) ->
             .map_err(|_| SporeError::Other("Failed to write update to temp file".to_string()))?;
         tmp.flush()
             .map_err(|_| SporeError::Other("Failed to flush temp file".to_string()))?;
+        tmp.sync_all()
+            .map_err(|_| SporeError::Other("Failed to sync temp file".to_string()))?;
         Ok(())
     })();
 
