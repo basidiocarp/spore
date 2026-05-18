@@ -11,6 +11,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 const DEFAULT_TIMEOUT_MS: u64 = 10_000;
+const MAX_RESPONSE_BYTES: u64 = 8 * 1024 * 1024; // 8 MB
 
 /// Transport type for a local service endpoint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,7 +223,7 @@ impl LocalServiceClient {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, TransportError> {
-        use std::io::{BufRead, BufReader, Write};
+        use std::io::{BufRead, BufReader, Read, Write};
         use std::os::unix::net::UnixStream;
 
         let stream =
@@ -273,8 +274,9 @@ impl LocalServiceClient {
             source: e,
         })?;
 
-        // Read response as newline-delimited JSON
-        let reader = BufReader::new(&stream);
+        // Read response as newline-delimited JSON with bounded allocation
+        let bounded_reader = (&stream).take(MAX_RESPONSE_BYTES);
+        let reader = BufReader::new(bounded_reader);
         let mut lines = reader.lines();
         loop {
             match lines.next() {
@@ -335,7 +337,7 @@ impl LocalServiceClient {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, TransportError> {
-        use std::io::{BufRead, BufReader, Write};
+        use std::io::{BufRead, BufReader, Read, Write};
         use std::net::TcpStream;
 
         let stream =
@@ -386,8 +388,9 @@ impl LocalServiceClient {
             source: e,
         })?;
 
-        // Read response as newline-delimited JSON
-        let reader = BufReader::new(&stream);
+        // Read response as newline-delimited JSON with bounded allocation
+        let bounded_reader = (&stream).take(MAX_RESPONSE_BYTES);
+        let reader = BufReader::new(bounded_reader);
         let mut lines = reader.lines();
         loop {
             match lines.next() {

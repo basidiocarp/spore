@@ -208,7 +208,8 @@ impl McpClient {
         });
 
         if let Ok((result, stdout_back)) = rx.recv_timeout(timeout) {
-            // Put stdout back so child can be reused
+            // Put stdout back so child can be reused, even if result is an error.
+            // This ensures stdout is available for retry or subsequent calls.
             if let Some(child) = self.child.as_mut() {
                 child.stdout = Some(stdout_back);
             }
