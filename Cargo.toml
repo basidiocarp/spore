@@ -16,9 +16,8 @@ name = "spore"
 path = "src/lib.rs"
 
 [features]
-default = ["logging", "http"]
+default = ["logging"]
 logging = ["dep:tracing-subscriber"]
-http = ["dep:ureq"]
 otel = [
   "dep:opentelemetry",
   "dep:opentelemetry_sdk",
@@ -40,7 +39,7 @@ thiserror = "2"
 toml = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json"], optional = true }
-ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 which = "7"
 
 [dev-dependencies]

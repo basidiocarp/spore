@@ -171,9 +171,6 @@ impl LocalServiceClient {
                 transport: "unix-socket".to_string(),
             }),
             Transport::Tcp => self.call_tcp(method, params, timeout),
-            #[cfg(feature = "http")]
-            Transport::Http => self.call_http(method, params, timeout),
-            #[cfg(not(feature = "http"))]
             Transport::Http => Err(TransportError::NotSupported {
                 transport: "http".to_string(),
             }),
@@ -445,19 +442,6 @@ impl LocalServiceClient {
         }
     }
 
-    #[cfg(feature = "http")]
-    #[allow(clippy::unused_self)]
-    fn call_http(
-        &self,
-        _method: &str,
-        _params: Value,
-        _timeout: Duration,
-    ) -> Result<Value, TransportError> {
-        // HTTP transport is not yet implemented. For now, return NotSupported.
-        Err(TransportError::NotSupported {
-            transport: "http".to_string(),
-        })
-    }
 }
 
 #[cfg(test)]
